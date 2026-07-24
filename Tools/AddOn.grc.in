@@ -1,0 +1,20 @@
+#include "ResourceIds.hpp"
+
+'STR#' ID_ADDON_INFO "Add-on Name and Description" {
+/* [  1] */		"labelator"
+/* [  2] */		"labelator @ADDON_VERSION@ @ADDON_SUBVERSION@ "
+}
+
+'STR#' ID_ADDON_MENU "Strings for the Menu" {
+/* [ 1] */	"labelator"
+/* [  1] */		"Оптимизировать^E3^ES^EE^ED^EW^EL"
+}
+
+'STR#' ID_ADDON_PROMT "Strings for the Menu" {
+/* [  ] */	"labelator"
+/* [  1] */		"Оптимизировать"
+}
+
+'STR#' ID_ADDON_STRINGS "Add-On Strings" {
+/* [  1] */		"Синхронизация свойств и параметров"
+}
