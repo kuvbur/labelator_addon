@@ -7,11 +7,7 @@
 
 namespace TestFunc {
 
-    void Test () {
-        DBprnt ("TEST", "start");
-
-        DBprnt ("TEST", "end");
-    }
+    void Test () {}
 
 } // namespace TestFunc
 #endif
