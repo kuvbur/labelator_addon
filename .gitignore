@@ -10,8 +10,6 @@
 *.lck
 *.user
 *.userosscache
-*Fix.grc
-*Fix.grc.*
 .DS_Store
 .vscode
 
