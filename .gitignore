@@ -383,3 +383,10 @@ ARCHITECTURE.md
 compile_commands.json
 *.exe
 nul
+*.o
+*.obj
+*.apx
+*.pdb
+*.ilk
+Build/
+
