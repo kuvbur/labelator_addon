@@ -250,8 +250,8 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
         if (!bestCand) {
             Candidate fallback;
             fallback.textPosition = element.initialTextPosition;
-            fallback.textBox = {element.initialTextPosition.x - 5, element.initialTextPosition.y - 5,
-                               element.initialTextPosition.x + 5, element.initialTextPosition.y + 5};
+            fallback.textBox = {element.initialTextPosition.x - kFallbackBoxSizeMm, element.initialTextPosition.y - kFallbackBoxSizeMm,
+                               element.initialTextPosition.x + kFallbackBoxSizeMm, element.initialTextPosition.y + kFallbackBoxSizeMm};
             fallback.leaderPolyline = {element.initialTextPosition, element.initialTextPosition};
             fallback.valid = true;
             result.log.finalConflictCount = 1;
@@ -277,6 +277,15 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
     for (const auto& el : elements) {
         result.log.totalCandidatesGenerated += el.candidates.size();
     }
+    
+    // Fill OptimizationLog fields per AGENTS.md Section 12
+    result.log.rejectedCandidates = 0;
+    for (const auto& el : elements) {
+        for (const auto& c : el.candidates) {
+            if (!c.valid) ++result.log.rejectedCandidates;
+        }
+    }
+    result.log.executionTimeMs = 0.0; // Placeholder - can add chrono timer later
     
     return result;
 }
