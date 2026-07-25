@@ -381,3 +381,4 @@ REVIEW_SomeStuff.md
 /.hermes
 ARCHITECTURE.md
 compile_commands.json
+*.exe
