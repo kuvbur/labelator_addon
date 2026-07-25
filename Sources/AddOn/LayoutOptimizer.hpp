@@ -1,5 +1,5 @@
 //------------ kuvbur 2026 ------------
-// LayoutOptimizer Core Module - Phase 1: Geometry Primitives
+// LayoutOptimizer Core Module - Phase 1-5: Geometry Primitives through Greedy Solver
 // NO ACAPI/GSRoot includes allowed — pure C++17, stdlib only.
 // See AGENTS.md Section 2 Rule 1, Section 3 (coordinate system), Section 8 (collision detection).
 
@@ -97,7 +97,7 @@ struct Rect {
 
 // Stream output for test diagnostics
 inline std::ostream& operator<<(std::ostream& os, const Rect& r) {
-    return os << "Rect(l=" << r.left << ", t=" << r.top 
+    return os << "Rect(l=" << r.left << ", t=" << r.top
               << ", r=" << r.right << ", b=" << r.bottom << ")";
 }
 
@@ -157,17 +157,21 @@ struct Candidate {
     std::vector<Point2D> leaderPolyline;
     double offset = 0.0;
     double angle = 0.0;          // Degrees, clockwise from +X
+    double leaderAngle = 0.0;    // Degrees, for leader orientation
     bool valid = true;           // False after filtering (but fallback is always valid)
 };
 
 // Fixed candidate generation grid — Section 6 constants (DO NOT CHANGE without updating AGENTS.md)
-inline constexpr double kCandidateAnglesDeg[8] = {
+static constexpr double kCandidateAnglesDeg[8] = {
     0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0
 };
-inline constexpr double kCandidateDistancesMm[3] = {
+static constexpr double kCandidateDistancesMm[3] = {
     5.0, 10.0, 20.0
 };
 // Total raw candidates per element = 8 * 3 = 24, before fallback candidate (Section 7)
+static constexpr int kNumAngles = 8;
+static constexpr int kNumDistances = 3;
+static constexpr int kRawCandidates = kNumAngles * kNumDistances;
 
 // -----------------------------------------------------------------------------
 // 8.2 Deterministic Segment-vs-Segment Intersection (eps = 1e-4)
@@ -296,15 +300,53 @@ struct PlacementPriority {
 };
 
 // -----------------------------------------------------------------------------
-// 12. Diagnostic Log
+// 11. Element Input & Solve Result — for Greedy Solver
 // -----------------------------------------------------------------------------
-struct OptimizationLog {
-    size_t elementCount = 0;
-    size_t totalCandidatesGenerated = 0;
-    size_t rejectedCandidates = 0;
-    int finalConflictCount = 0;
-    double executionTimeMs = 0.0;
+struct ElementInput {
+    ElementType type;                  // Dimension/Leader (from existing ElementType enum)
+    bool locked = false;
+    ElementId id = 0;
+    Point2D initialTextPosition;
+    std::vector<Candidate> candidates; // Pre-generated candidates for this element
 };
+
+// Result of the greedy solver pass
+struct SolveResult {
+    std::vector<Candidate> selectedCandidates; // One per input element
+    bool zeroCollisionSolution = false;
+    struct OptimizationLog {
+        size_t elementCount = 0;
+        size_t totalCandidatesGenerated = 0;
+        size_t rejectedCandidates = 0;
+        int finalConflictCount = 0;
+        double executionTimeMs = 0.0;
+    } log;
+};
+
+// -----------------------------------------------------------------------------
+// 12. Function Declarations — for GreedySolver.cpp
+// -----------------------------------------------------------------------------
+// Collision helpers
+int CountTextCollisions(const Candidate& a, const Candidate& b);
+int CountGeometryCollisions(const Candidate& cand, const std::vector<Rect>& forbiddenGeometry);
+int CountLineCollisions(const Candidate& cand,
+                        const std::vector<Candidate>& placedCandidates,
+                        const std::vector<std::vector<Point2D>>& obstaclePolylines);
+
+// Cost helpers
+double ComputeMovement(const Candidate& cand, const Point2D& initialPos);
+double ComputeLeaderLength(const Candidate& cand);
+double ComputeAlignmentPenalty(const Candidate& cand);
+
+// Core evaluation and solver entry point
+LayoutCost EvaluateCandidate(const Candidate& cand,
+                             const ElementInput& element,
+                             const std::vector<Candidate>& placedCandidates,
+                             const std::vector<Rect>& forbiddenGeometry,
+                             const std::vector<std::vector<Point2D>>& obstaclePolylines);
+SolveResult Solve(const std::vector<ElementInput>& elements,
+                  const std::vector<Rect>& forbiddenGeometry,
+                  const std::vector<std::vector<Point2D>>& obstaclePolylines);
 
 } // namespace LayoutOptimizer
 
