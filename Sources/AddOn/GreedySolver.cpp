@@ -182,20 +182,28 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
         const auto& el = elements[i];
         
         // Count invalid candidates
-        int invalidCount = 0;
-        for (const auto& c : el.candidates) {
-            if (!c.valid) ++invalidCount;
-        }
-        
-        // Count locked neighbors (elements that are locked and have geometry overlap potential)
-        int lockedNeighbors = 0;
-        for (const auto& other : elements) {
-            if (other.locked && other.id != el.id) {
-                // Simple heuristic: if bounding boxes could overlap, count as neighbor
-                // In practice, locked elements' current layout geometry would be checked
-                lockedNeighbors++;
-            }
-        }
+                int invalidCount = 0;
+                for (const auto& c : el.candidates) {
+                    if (!c.valid) ++invalidCount;
+                }
+
+                // Count locked neighbors that could potentially overlap (bbox overlap check)
+                int lockedNeighbors = 0;
+                for (const auto& other : elements) {
+                    if (other.locked && other.id != el.id) {
+                        // Check if element's initial text box could overlap with locked element's layout
+                        // Use candidate text boxes for overlap detection
+                        for (const auto& cand : el.candidates) {
+                            for (const auto& otherCand : other.candidates) {
+                                if (cand.textBox.Intersects(otherCand.textBox)) {
+                                    lockedNeighbors++;
+                                    break;
+                                }
+                            }
+                            if (lockedNeighbors > 0) break; // Count each locked neighbor at most once per element
+                        }
+                    }
+                }
         
         PlacementPriority pri;
         pri.typeRank = (el.type == ElementType::Dimension) ? 0 : 1;
@@ -218,61 +226,64 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
     result.selectedCandidates.resize(elements.size());
     
     bool allZeroCollision = true;
-    
-    for (const auto& pe : prioritized) {
-        const auto& element = elements[pe.originalIndex];
-        
-        // Locked elements: use their first candidate (which should be the fallback/current position)
-        if (element.locked) {
-            Candidate chosen = element.candidates[0];
+        int totalConflicts = 0;
+
+        for (const auto& pe : prioritized) {
+            const auto& element = elements[pe.originalIndex];
+
+            // Locked elements: use their fallback candidate (LAST in list, index = candidates.size() - 1)
+            // Per AGENTS.md Section 7: fallback is added last and bypasses filters
+            if (element.locked) {
+                Candidate chosen = element.candidates.back();
+                result.selectedCandidates[pe.originalIndex] = chosen;
+                placedCandidates.push_back(chosen);
+                continue;
+            }
+
+            // Find best candidate by LayoutCost (unified logic for valid + fallback)
+            const Candidate* bestCand = nullptr;
+            LayoutCost bestCost;
+            bool hasBest = false;
+
+            for (const auto& cand : element.candidates) {
+                LayoutCost cost = EvaluateCandidate(cand, element, placedCandidates, forbiddenGeometry, obstaclePolylines);
+
+                if (!hasBest || cost < bestCost) {
+                    bestCost = cost;
+                    bestCand = &cand;
+                    hasBest = true;
+                }
+            }
+
+            // Safety: if no candidates at all (shouldn't happen per AGENTS.md Section 7),
+            // create a minimal fallback candidate at initial position
+            if (!bestCand) {
+                Candidate fallback;
+                fallback.textPosition = element.initialTextPosition;
+                fallback.textBox = {element.initialTextPosition.x - kFallbackBoxSizeMm, element.initialTextPosition.y - kFallbackBoxSizeMm,
+                                   element.initialTextPosition.x + kFallbackBoxSizeMm, element.initialTextPosition.y + kFallbackBoxSizeMm};
+                fallback.leaderPolyline = {element.initialTextPosition, element.initialTextPosition};
+                fallback.valid = true;
+                totalConflicts += 1;
+                result.zeroCollisionSolution = false;
+                result.selectedCandidates[pe.originalIndex] = fallback;
+                placedCandidates.push_back(fallback);
+                continue;
+            }
+
+            // Track if zero-collision solution and accumulate actual conflict count
+            if (bestCand && (bestCost.textCollision > 0 || bestCost.geometryCollision > 0 || bestCost.lineCollision > 0)) {
+                allZeroCollision = false;
+                totalConflicts += bestCost.textCollision + bestCost.geometryCollision + bestCost.lineCollision;
+            }
+
+            Candidate chosen = *bestCand;
             result.selectedCandidates[pe.originalIndex] = chosen;
             placedCandidates.push_back(chosen);
-            continue;
         }
-        
-        // Find best candidate by LayoutCost (unified logic for valid + fallback)
-        const Candidate* bestCand = nullptr;
-        LayoutCost bestCost;
-        bool hasBest = false;
-        
-        for (const auto& cand : element.candidates) {
-            LayoutCost cost = EvaluateCandidate(cand, element, placedCandidates, forbiddenGeometry, obstaclePolylines);
-            
-            if (!hasBest || cost < bestCost) {
-                bestCost = cost;
-                bestCand = &cand;
-                hasBest = true;
-            }
-        }
-        
-        // Safety: if no candidates at all (shouldn't happen per AGENTS.md Section 7),
-        // create a minimal fallback candidate at initial position
-        if (!bestCand) {
-            Candidate fallback;
-            fallback.textPosition = element.initialTextPosition;
-            fallback.textBox = {element.initialTextPosition.x - kFallbackBoxSizeMm, element.initialTextPosition.y - kFallbackBoxSizeMm,
-                               element.initialTextPosition.x + kFallbackBoxSizeMm, element.initialTextPosition.y + kFallbackBoxSizeMm};
-            fallback.leaderPolyline = {element.initialTextPosition, element.initialTextPosition};
-            fallback.valid = true;
-            result.log.finalConflictCount = 1;
-            result.zeroCollisionSolution = false;
-            result.selectedCandidates[pe.originalIndex] = fallback;
-            placedCandidates.push_back(fallback);
-            continue;
-        }
-        
-        // Track if zero-collision solution
-        if (bestCand && (bestCost.textCollision > 0 || bestCost.geometryCollision > 0 || bestCost.lineCollision > 0)) {
-            allZeroCollision = false;
-        }
-        
-        Candidate chosen = *bestCand;
-        result.selectedCandidates[pe.originalIndex] = chosen;
-        placedCandidates.push_back(chosen);
-    }
-    
-    result.log.finalConflictCount = allZeroCollision ? 0 : 1;
-    result.zeroCollisionSolution = allZeroCollision;
+
+        result.log.finalConflictCount = totalConflicts;
+        result.zeroCollisionSolution = allZeroCollision;
     result.log.totalCandidatesGenerated = 0;
     for (const auto& el : elements) {
         result.log.totalCandidatesGenerated += el.candidates.size();
