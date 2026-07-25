@@ -257,6 +257,12 @@ inline bool TextBoxIntersectsPolyline(const Rect& box,
 }
 
 // -----------------------------------------------------------------------------
+// Constants for Greedy Solver (C++14 compatible static constexpr)
+// -----------------------------------------------------------------------------
+static constexpr int kInvalidCandidatePenalty = 1000;
+static constexpr double kFallbackBoxSizeMm = 5.0;
+
+// -----------------------------------------------------------------------------
 // 9. Cost Function — Lexicographic comparison via std::tuple
 // -----------------------------------------------------------------------------
 struct LayoutCost {

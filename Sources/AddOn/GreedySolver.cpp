@@ -131,9 +131,9 @@ LayoutCost EvaluateCandidate(const Candidate& cand,
     
     if (!cand.valid) {
         // Invalid candidate gets max hard collisions to deprioritize
-        cost.textCollision = 1000;
-        cost.geometryCollision = 1000;
-        cost.lineCollision = 1000;
+        cost.textCollision = kInvalidCandidatePenalty;
+        cost.geometryCollision = kInvalidCandidatePenalty;
+        cost.lineCollision = kInvalidCandidatePenalty;
         return cost;
     }
     
