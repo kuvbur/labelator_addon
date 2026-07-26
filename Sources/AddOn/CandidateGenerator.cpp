@@ -10,7 +10,7 @@
 namespace LayoutOptimizer {
 
 // -----------------------------------------------------------------------------
-// Helpers
+// CandidateGenerator::MakeCandidateInternal
 // -----------------------------------------------------------------------------
 
 static inline double DegToRad (double deg) {
@@ -22,7 +22,8 @@ Candidate CandidateGenerator::MakeCandidateInternal (
     double angleDeg,
     double distanceMm,
     const Rect& textBoxSize,
-    bool isFallback
+    bool isFallback,
+    double shoulderLength
 ) {
     Candidate cand;
     cand.angle = angleDeg;
@@ -46,13 +47,12 @@ Candidate CandidateGenerator::MakeCandidateInternal (
         cand.textBox.bottom = cand.textPosition.y + h * 0.5;
 
         // Build leader polyline: anchor -> shoulder -> textPosition
+        // Use the provided shoulderLength (from LeaderGeometry) instead of half distance
         cand.leaderPolyline.clear();
         cand.leaderPolyline.push_back (anchor);
-        // For simplicity, shoulder at half distance
-        double shoulderDist = distanceMm * 0.5;
         cand.leaderPolyline.push_back ({
-            anchor.x + shoulderDist * std::cos (rad),
-            anchor.y + shoulderDist * std::sin (rad)
+            anchor.x + shoulderLength * std::cos (rad),
+            anchor.y + shoulderLength * std::sin (rad)
         });
         cand.leaderPolyline.push_back (cand.textPosition);
     }
@@ -108,7 +108,7 @@ bool CandidateGenerator::PassesObstacleLines (const Candidate& cand,
 }
 
 // -----------------------------------------------------------------------------
-// CandidateGenerator implementation
+// CandidateGenerator::GenerateForLeader
 // -----------------------------------------------------------------------------
 
 std::vector<Candidate> CandidateGenerator::GenerateForLeader (
@@ -124,12 +124,20 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
     Rect textBoxSize = currentLayout.textBox;
     textBoxSize.Normalize();
 
+    // Shoulder length from the original geometry (stored in leaderPolyline)
+    // The shoulder is the second point in the polyline (index 1)
+    double shoulderLength = 0.0;
+    if (currentLayout.leaderPolyline.size() >= 2) {
+        Point2D shoulderVec = currentLayout.leaderPolyline[1] - currentLayout.leaderPolyline[0];
+        shoulderLength = std::sqrt(shoulderVec.x * shoulderVec.x + shoulderVec.y * shoulderVec.y);
+    }
+
     // 1. Generate 24 raw candidates (8 angles × 3 distances)
     for (int ai = 0; ai < kNumAngles; ++ai) {
         double angle = kCandidateAnglesDeg[ai];
         for (int di = 0; di < kNumDistances; ++di) {
             double dist = kCandidateDistancesMm[di];
-            Candidate cand = MakeCandidateInternal (anchor, angle, dist, textBoxSize, false);
+            Candidate cand = MakeCandidateInternal (anchor, angle, dist, textBoxSize, false, shoulderLength);
             candidates.push_back (std::move (cand));
         }
     }
@@ -165,31 +173,72 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
     return candidates;
 }
 
+// -----------------------------------------------------------------------------
+// CandidateGenerator::GenerateForDimension
+// -----------------------------------------------------------------------------
+
 std::vector<Candidate> CandidateGenerator::GenerateForDimension (
     const Point2D& measurePoint,
     const DimensionLayout& currentLayout,
+    const Point2D& direction,
     const std::vector<Rect>& obstacles,
     const Rect& viewBoundary
 ) {
     std::vector<Candidate> candidates;
-    candidates.reserve (kRawCandidates + 1);
+    candidates.reserve (kRawCandidates + 1 + 5); // 24 radial + 1 fallback + 5 perp offsets
 
     Rect textBoxSize = currentLayout.textBox;
     textBoxSize.Normalize();
 
-    // 1. Generate 24 raw candidates (same grid)
+    // 1. Generate 24 raw candidates (8 angles × 3 distances)
+    // For dimensions: candidates are radial positions around the measure point
     for (int ai = 0; ai < kNumAngles; ++ai) {
         double angle = kCandidateAnglesDeg[ai];
         for (int di = 0; di < kNumDistances; ++di) {
             double dist = kCandidateDistancesMm[di];
-            Candidate cand = MakeCandidateInternal (measurePoint, angle, dist, textBoxSize, false);
-            // For dimensions, offset is perpendicular distance from measure line
-            cand.offset = dist;
+            Candidate cand = MakeCandidateInternal (measurePoint, angle, dist, textBoxSize, false, 0.0);
+            // For dimensions, offset is the perpendicular distance from the dimension line
+            // We compute it as the projection onto the perpendicular direction
+            Point2D perpDir = {-direction.y, direction.x};
+            double offset = cand.textPosition.x * perpDir.x + cand.textPosition.y * perpDir.y
+                          - measurePoint.x * perpDir.x - measurePoint.y * perpDir.y;
+            cand.offset = offset;
             candidates.push_back (std::move (cand));
         }
     }
 
-    // 2. Guaranteed fallback candidate
+    // 2. Additional candidates: perpendicular offsets along dimension line
+    // This allows text to slide along the dimension line (parallel offsets)
+    constexpr double kPerpOffsets[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
+    for (double off : kPerpOffsets) {
+        Candidate cand;
+        Point2D perpDir = {-direction.y, direction.x};
+        cand.textPosition = {
+            currentLayout.textPosition.x + perpDir.x * off,
+            currentLayout.textPosition.y + perpDir.y * off
+        };
+        cand.offset = off; // This is the parallel offset along the dimension line
+        cand.angle = 0.0;
+
+        double w = textBoxSize.Width();
+        double h = textBoxSize.Height();
+        cand.textBox.left = cand.textPosition.x - w * 0.5;
+        cand.textBox.right = cand.textPosition.x + w * 0.5;
+        cand.textBox.top = cand.textPosition.y - h * 0.5;
+        cand.textBox.bottom = cand.textPosition.y + h * 0.5;
+        cand.leaderPolyline = { cand.textPosition };
+
+        // Quick boundary check
+        if (cand.textBox.left < viewBoundary.left || cand.textBox.right > viewBoundary.right ||
+            cand.textBox.top < viewBoundary.top || cand.textBox.bottom > viewBoundary.bottom) {
+            cand.valid = false;
+        } else {
+            cand.valid = true;
+        }
+        candidates.push_back (std::move (cand));
+    }
+
+    // 3. Guaranteed fallback candidate (current position)
     Candidate fallback;
     fallback.textPosition = currentLayout.textPosition;
     fallback.textBox = currentLayout.textBox;
@@ -197,15 +246,14 @@ std::vector<Candidate> CandidateGenerator::GenerateForDimension (
     fallback.valid = true;
     candidates.push_back (std::move (fallback));
 
-    // 3. Filter (fallback bypasses, mark invalid instead of filtering)
-    std::vector<std::vector<Point2D>> obstaclePolylines; // Phase 4
+    // 4. Filter candidates (fallback bypasses filters)
+    std::vector<std::vector<Point2D>> obstaclePolylines; // Phase 4 placeholder
 
     for (size_t i = 0; i < candidates.size(); ++i) {
         Candidate& cand = candidates[i];
         bool isFallback = (i == candidates.size() - 1);
 
         if (isFallback) {
-            // Fallback always passes, already valid = true
             continue;
         }
 

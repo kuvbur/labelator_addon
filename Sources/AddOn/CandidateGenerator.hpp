@@ -33,21 +33,25 @@ struct CandidateGenerator {
     // Generate candidates for a Dimension element
     // measurePoint = first point of DimensionGeometry::measurePoints
     // currentLayout = DimensionLayout
+    // direction = DimensionGeometry::direction (normalized, for perpendicular offsets)
     static std::vector<Candidate> GenerateForDimension (
         const Point2D& measurePoint,
         const DimensionLayout& currentLayout,
+        const Point2D& direction,
         const std::vector<Rect>& obstacles,
         const Rect& viewBoundary
     );
 
 private:
     // Helper: build candidate at specific angle/distance
+    // shoulderLength is used for leaders (from LeaderGeometry), ignored for dimensions (pass 0)
     static Candidate MakeCandidateInternal (
         const Point2D& anchor,
         double angleDeg,
         double distanceMm,
         const Rect& textBoxSize,
-        bool isFallback
+        bool isFallback,
+        double shoulderLength
     );
 
     // Filter Step 1: View boundary check

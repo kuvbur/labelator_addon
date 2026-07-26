@@ -8,7 +8,7 @@
 - **Структура**: Плоская в `Sources/AddOn/`. Все файлы в одной папке (согласно правилам)
 - **Файлы Phase 6**: `ArchicadAdapter.cpp`, `ArchicadAdapter.hpp` — восстановлены и исправлены
 
-## Phase 6 — 🔧 IN PROGRESS (ArchicadAdapter)
+## Phase 6 — 🔧 IN PROGRESS (ArchicadAdapter) — REFACTORING
 
 ### ✅ Выполнено в этой сессии
 1. **Восстановлены** `ArchicadAdapter.cpp` / `ArchicadAdapter.hpp` из `.bak`
@@ -19,19 +19,24 @@
    - Исправлено предупреждение C4018 (signed/unsigned mismatch) — `Int32` → `UInt32`
 3. **Верификация**: `Build succeeded!` подтверждено скриптом `hermes-verify-build-archicad-adapter.sh`
 
-### 🔧 Что осталось сделать в Phase 6
-1. [ ] **Реализовать** `ApplyChanges()` — записать новые координаты в Archicad элементы
-2. [ ] **Обернуть** в `ACAPI_CallUndoableCommand` для корректного Undo/Redo
-3. [ ] **Интегрировать** LayoutOptimizer::Solve() в adapter flow
-4. [ ] **Тест**: manual Archicad test — locked elements не двигаются, undo/redo работает
+### 🔧 Refactoring Tasks (Per User Instructions)
+1. [x] **ЗАДАЧА 1**: Удалить legacy-монолит `LayoutOptimizer.cpp` (файл существует в Sources/AddOn/) — **ВЫПОЛНЕНО**
+2. [x] **ЗАДАЧА 2**: Восстановить конвейер в `ArchicadAdapter.cpp::SolveAndApply()`
+   - [x] Удалить создание кандидата-заглушки (fallback stub)
+   - [x] Внедрить прямые вызовы `LayoutOptimizer::CandidateGenerator::GenerateForLeader` и `GenerateForDimension`
+   - [x] Обеспечить сбор и передачу реальных данных `forbiddenGeometry` и `obstaclePolylines` в `Solve()`
+3. [x] **ЗАДАЧА 3**: Исправить логику генератора (`CandidateGenerator.cpp`)
+   - [x] **Dimensions**: Восстановить логику перпендикулярного смещения. Свойство `cand.offset` отражает перпендикулярное расстояние от размерной линии (вычисляется через проекцию на перпендикуляр направлению). Добавлены кандидаты со смещением вдоль линии размеров.
+   - [x] **Leaders**: Использовать оригинальную длину полки `le.geo.shoulderLength`, переданную из адаптера, вместо жестко закодированного `shoulderDist = distanceMm * 0.5`.
+4. [x] **ЗАДАЧА 4**: Безопасная работа с ACAPI (`ArchicadAdapter.cpp`)
+   - [x] Заменить эвристическую оценку ширины текстового бокса через `strlen` на точное извлечение из `paragraph.width` и `paragraph.height` в структуре `memo` выноски/размера.
+   - [x] Убрать хардкодную битовую проверку блокировки (`floorInd & 0x8000`), использовать стандартные API-флаги и атрибуты слоев (`layer.head.flags & 1`).
+   - [x] При обновлении геометрии выносок в `ApplyChanges` гарантировать структурную целостность элемента (гарантируем 3 точки: begC, midC, endC), чтобы избежать графических артефактов в Archicad.
 
-### Архитектура (AGENTS.md Section 4):
-```
-[Archicad API] → [ArchicadAdapter] → [LayoutOptimizer::Solve()] → [ArchicadAdapter::ApplyChanges()] → [ACAPI]
-```
-
-### Главный файл интеграции:
-- `Dimension_Main.cpp` — entry point Add-On (уже есть, нужно подключить adapter)
+### 🔧 Что осталось сделать в Phase 6 (после рефакторинга)
+1. [x] **Реализовать** `ApplyChanges()` — записать новые координаты в Archicad элементы
+2. [x] **Обернуть** в `ACAPI_CallUndoableCommand` для корректного Undo/Redo
+3. [ ] **Тест**: manual Archicad test — locked elements не двигаются, undo/redo работает
 
 ---
 
