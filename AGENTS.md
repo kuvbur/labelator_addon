@@ -535,11 +535,13 @@ Scope: any code inside `ArchicadAdapter/`, or anywhere else `ACAPI_*` functions,
 
 ### 22. Git & Version Control Discipline
 
-Implementation spans many separate agent sessions with no shared memory between them. Git history — not assumptions about file contents — is the only reliable record of what is actually done.
+Implementation spans many separate agent sessions with no shared memory between them. Git history — not assumptions about file contents — is the only reliable record of what is actually done. Frequent checkpoint commits are also the safety net that makes autonomous execution possible: a mistake rolls back to the last checkpoint instead of requiring a human to approve every step.
 
 - **Clean tree before editing:** run `git status` before making any change. If there are uncommitted changes not part of the current task, STOP — do not build on top of them, silently commit them, or discard them. Flag to a human instead.
 - **Log before starting a phase:** run `git log` and confirm the previous phase's DoD commit (Section 13) actually exists before starting the next phase. Do not trust a phase is "done" just because the files look present.
-- **One commit must equal one working state.** Every commit that lands on a branch tip must build and pass the current test suite (Section 12). WIP/broken intermediate states are fine to commit locally but must be squashed or clearly marked `WIP:` before being left as the tip — never leave a non-building commit as "done."
+- **Checkpoint commits are mandatory, not just permitted.** Commit, marked `WIP:`, at every completed item in `IDEA.md`'s Tactical Step-by-Step Plan where the build succeeds and no new errors were introduced — not only at phase DoD. A mistake then rolls back to the last completed sub-task, not to the start of the whole phase. Squash the phase's WIP commits into one clean commit once its DoD is met and it becomes the branch-tip commit.
+- **One commit must equal one working state at the tip.** Every commit left as a branch tip must build and pass the current test suite (Section 12) — WIP checkpoints are for local, in-progress work only, never left as the final tip.
+- **Never destroy the rollback trail.** No `git clean -fdx`, no deleting untracked files, no deleting files outside the current task's declared scope — these leave nothing to roll back to and defeat the purpose of this section.
 - **Commit messages cite this document.** Reference the phase and/or section, e.g. `Phase 4: implement SegmentsIntersect (Section 8.2)`. Keeps history greppable and lets a reviewer jump straight to the relevant rule.
 - **Never rewrite shared history.** No `git commit --amend`, `git rebase -i`, or `git push --force` on any branch that has already been reviewed or shared. Fix mistakes with a new commit.
 - **Never stage blindly.** No `git add .` / `git add -A` without first reading `git status`/`git diff`. Stage only files inside the current task's scope — this catches stray build artifacts or another session's unfinished edits.
