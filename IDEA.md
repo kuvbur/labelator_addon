@@ -45,7 +45,102 @@
 ### 🔧 Что осталось сделать в Phase 6 (после рефакторинга)
 1. [x] **Реализовать** `ApplyChanges()` — записать новые координаты в Archicad элементы
 2. [x] **Обернуть** в `ACAPI_CallUndoableCommand` для корректного Undo/Redo
-3. [ ] **Тест**: manual Archicad test — locked elements не двигаются, undo/redo работает (требует ручной проверки в Archicad)
+3. [ ] **Тест**: manual Archicad test — locked elements не меняются, undo/redo работает (требует ручной проверки в Archicad)
+
+---
+
+## 📋 План действий после ручного тестирования
+
+### A. Если тест PASSED (undo/redo работает, locked не тронуты)
+
+1. **WIP commit**: `git add -A && git commit -m "Phase 6 DoD: manual test passed"`
+2. **Phase 7 переход**:
+   - Очистить статус в IDEA.md: "Phase 6 COMPLETE"
+   - Начать Phase 7: Add Dimensions (если не доделаны полностью)
+   - Проверить, что DimensionElement полностью интегрирован в конвейер
+
+3. **Phase 8 подготовка** (DFS Clustering):
+   - Прочитать AGENTS.md §13 "Implementation Order"
+   - Добавить в IDEA.md план DFS clustering:
+     - Clustering criterion: графовые связи между элементами с пересекающимися textBox
+     - Neighborhood definition: радиус 50mm вокруг элемента
+     - Local search: 2-opt оптимизация внутри кластера
+
+### B. Если тест FAILED — типичные сценарии и исправления
+
+#### B1. "Locked elements moved" — баг в `IsElementLocked()`
+```cpp
+// Проверить: правильно ли определяется lock
+// ИСПРАВЛЕНИЕ: добавить debug-лог в ApplyChanges
+//   - std::cout << "Skipping locked element " << guid << std::endl;
+//   - Убедиться, что locked=true передаётся из CollectElements
+```
+
+#### B2. "Undo not working" — проблема в `ACAPI_CallUndoableCommand`
+```cpp
+// Возможные причины:
+// 1. ACAPI_CallUndoableCommand НЕ вызывается (проверить return statement)
+// 2. Ошибки ACAPI_Element_Change не обрабатываются → undo не активируется
+// ИСПРАВЛЕНИЕ: добавить обработку ошибок
+//   if (err != NoError) { 
+//       std::cerr << "Element change failed: " << err << std::endl;
+//       return err; // Early exit prevents partial undo
+//   }
+```
+
+#### B3. "Graphic artifacts on leaders" — проблема с polyline
+```cpp
+// ПРОВЕРИТЬ:
+// - Leader имеет 2 точки (begC, endC), но в ApplyChanges пишем 3
+// - Возможно, midC должен вычисляться как средняя точка
+// ИСПРАВЛЕНИЕ: если polyline.size() == 2, midC = (begC + endC) / 2
+```
+
+#### B4. "Crash on ApplyChanges" — утечка/нулевой указатель
+```cpp
+// ПРОВЕРИТЬ:
+// - ACAPI_Element_GetMemo вызывается перед GetMemo? (нет, у нас GetMemo не нужен)
+// - BNZero вызывается для всех структур перед использованием?
+// ИСПРАВЛЕНИЕ: добавить макрос SAFE_GET(elem, guid) с проверкой err
+```
+
+### C. План Phase 7 (Dimensions complete)
+
+1. **Verify Dimension implementation**:
+   - [ ] `DimensionElement.geo.direction` вычисляется правильно в CollectElements
+   - [ ] `GenerateForDimension` принимает `direction` параметр
+   - [ ] `ApplyChanges` обновляет `dimension.defNote.pos` правильно
+
+2. **Дополнить CandidateGenerator**:
+   - [ ] Если direction не нормализован, добавить нормализацию
+   - [ ] Если offset вычисляется неправильно, поправить формулу
+
+3. **Тестирование**:
+   - [ ] Unit test: создать DimensionElement с известным direction
+   - [ ] Проверить, что кандидаты генерируются в правильном направлении
+
+### D. План Phase 8 (DFS Clustering) — НЕ ЗАПУСКАТЬ без спецификации
+
+**ТРЕБУЕТСЯ: расширение AGENTS.md с критериями clustering**
+
+Перед началом Phase 8:
+1. Добавить в AGENTS.md секцию про clustering criterion (как формируется граф)
+2. Добавить Neighborhood definition (что считается соседом)
+3. Добавить precision требования для SegmentsIntersect
+4. Только ПОСЛЕ этого начинать реализацию
+
+---
+
+## 🚨 STOP Conditions (AGENTS.md §16)
+
+Перед ЛЮБЫМ изменением кода:
+```bash
+# Автоматические проверки (обязательно проходить)
+grep -rn "ACAPI_" Sources/AddOn/LayoutOptimizer.hpp Sources/AddOn/CandidateGenerator.* Sources/AddOn/GreedySolver.*
+grep -rn "unordered_map\|unordered_set" Sources/AddOn/LayoutOptimizer/ Sources/AddOn/CandidateGenerator.* Sources/AddOn/GreedySolver.*
+```
+
+**Если обнаружено нарушение → СТОП, создать issue, не патчить!**
 
 ---
 
