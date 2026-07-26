@@ -193,37 +193,70 @@ static std::vector<Candidate> GenerateLeaderCandidates(const LeaderElement& elem
 // -----------------------------------------------------------------------------
 // Candidate generation for Dimensions
 // -----------------------------------------------------------------------------
+// Section 6: Fixed grid — 8 angles × 3 distances = 24 raw candidates
+// For dimensions: angle defines text position around measure point, distance from measure point
+// Plus perpendicular offsets along dimension line
+// -----------------------------------------------------------------------------
 static std::vector<Candidate> GenerateDimensionCandidates(const DimensionElement& elem,
                                                           const Rect& viewBounds,
                                                           const std::vector<Rect>& forbiddenRects,
                                                           const std::vector<std::pair<Point2D, Point2D>>& obstacleLines) {
     std::vector<Candidate> candidates;
 
-    // Dimensions: offset along perpendicular to dimension line
-    constexpr double kOffsets[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
+    // Primary grid: 8 angles × 3 distances from measure point
+    for (double angDeg : kCandidateAnglesDeg) {
+        double rad = angDeg * M_PI / 180.0;
+        double dx = std::cos(rad);
+        double dy = std::sin(rad); // +Y down = clockwise angle
 
-    Point2D perp = { -elem.geo.direction.y, elem.geo.direction.x }; // rotate 90° CCW
+        for (double dist : kCandidateDistancesMm) {
+            Candidate cand;
+            cand.textPosition = { elem.geo.measurePoints[0].x + dx * dist,
+                                  elem.geo.measurePoints[0].y + dy * dist };
+            cand.angle = angDeg;
 
-    for (double off : kOffsets) {
+            // Build text box centered at textPosition, same size as current
+            double w = elem.layout.textBox.Width();
+            double h = elem.layout.textBox.Height();
+            cand.textBox = Rect::FromCenter(cand.textPosition, w, h);
+
+            // Leader polyline for dimensions: just a point (no leader line)
+            cand.leaderPolyline = { cand.textPosition };
+
+            // Perpendicular offset from dimension line (for cost evaluation)
+            cand.offset = 0.0; // Will be set by perpendicular offset candidates
+
+            // Quick boundary check
+            if (cand.textBox.left < viewBounds.left || cand.textBox.right > viewBounds.right ||
+                cand.textBox.top < viewBounds.top || cand.textBox.bottom > viewBounds.bottom) {
+                cand.valid = false;
+            }
+
+            candidates.push_back(cand);
+        }
+    }
+
+    // Additional candidates: perpendicular offsets along dimension line
+    // This allows text to slide along the dimension line
+    Point2D perpOffset = { -elem.geo.direction.y, elem.geo.direction.x };
+    constexpr double kPerpOffsets[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
+
+    for (double off : kPerpOffsets) {
         Candidate cand;
-        cand.textPosition = { elem.layout.textPosition.x + perp.x * off,
-                              elem.layout.textPosition.y + perp.y * off };
+        cand.textPosition = { elem.layout.textPosition.x + perpOffset.x * off,
+                              elem.layout.textPosition.y + perpOffset.y * off };
         cand.offset = off;
-        cand.angle = 0.0; // dimensions don't have leader angle
+        cand.angle = 0.0;
 
-        // Text box
         double w = elem.layout.textBox.Width();
         double h = elem.layout.textBox.Height();
         cand.textBox = Rect::FromCenter(cand.textPosition, w, h);
+        cand.leaderPolyline = { cand.textPosition };
 
-        // Boundary check
         if (cand.textBox.left < viewBounds.left || cand.textBox.right > viewBounds.right ||
             cand.textBox.top < viewBounds.top || cand.textBox.bottom > viewBounds.bottom) {
             cand.valid = false;
         }
-
-        // No leader polyline for dimensions (or just a point)
-        cand.leaderPolyline = { cand.textPosition };
 
         candidates.push_back(cand);
     }

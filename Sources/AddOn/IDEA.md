@@ -1,7 +1,8 @@
 # Текущий план разработки (Phase 6: ArchicadAdapter — ✅ COMPLETE)
 
 ## Реальный статус (проверено git status)
-- **Git**: Clean, 4 commits ahead of origin/master
+- **Git**: Clean, 5 commits ahead of origin/master
+  - `3582088` "Phase 7 Planning: Detailed Phase 7 plan for Dimension chains"
   - `824950b` "Phase 6 Complete: ArchicadAdapter implementation with LayoutOptimizer integration"
   - `e1be291` "Phase 5: Fix GreedySolver - locked fallback + conflict counting + priority heuristic"
   - `c0465e9` "chore: ignore build artifacts"
@@ -72,7 +73,7 @@
 python Tools/BuildAddOn.py -c config.json -v 25
 
 # Верификация
-bash C:\\\\Users\\\\da-rogojin\\\\AppData\\\\Local\\\\Temp\\\\hermes-verify-build-archicad-adapter.sh
+bash C:\\Users\\da-rogojin\\AppData\\Local\\Temp\\hermes-verify-build-archicad-adapter.sh
 
 # Git
 git status
@@ -82,7 +83,67 @@ git commit -m "описание"
 
 ---
 
-## Следующие этапы (AGENTS.md Section 13)
+## Code Review: LayoutOptimizer Core (Pre-Phase 7) — ✅ VERIFIED
+
+### ✅ Compliant with AGENTS.md
+| Check | Status | Notes |
+|-------|--------|-------|
+| No ACAPI/GSRoot includes in LayoutOptimizer | ✅ PASS | Pure C++17, stdlib only |
+| Deterministic containers (no unordered_map/set in solver) | ✅ PASS | Uses `std::map`, `std::vector` with explicit sort |
+| Fixed candidate grid constants (Section 6) | ✅ PASS | 8 angles × 3 distances = 24 + fallback |
+| Guaranteed fallback candidate (Section 7) | ✅ PASS | Added last, `valid = true`, bypasses filters |
+| Symmetric epsilon AABB (1e-4) | ✅ PASS | `Rect::Intersects` with `eps = 1e-4` |
+| Deterministic segment intersection | ✅ PASS | `SegmentsIntersect` with collinear overlap handling |
+| LayoutCost lexicographic tuple | ✅ PASS | 6-field tie-break: textCollision, geometryCollision, lineCollision, movement, leaderLength, alignmentPenalty |
+| PlacementPriority ordering | ✅ PASS | typeRank=0(Dim), lockedNeighborCount, invalidCandidateCount, id |
+| No R-Tree/QuadTree | ✅ PASS | O(n²) acceptable for <500 elements |
+| No multithreading | ✅ PASS | Single-threaded |
+| M_PI defined for MSVC | ✅ PASS | `#ifndef M_PI` guard added |
+
+### ⚠️ Issues to Fix Before Phase 7
+
+| Issue | File:Line | Severity | Fix |
+|-------|-----------|----------|-----|
+| `SolveLeadersGreedy` / `SolveDimensionsGreedy` unused | LayoutOptimizer.cpp:245, 333 | LOW | Remove or mark as legacy; `Solve()` is the canonical API |
+| Duplicate cost evaluation logic | LayoutOptimizer.cpp:26-133 | MEDIUM | Consolidate `EvaluateCandidateCost` (per-element) with `EvaluateCandidate` (unified API) |
+| **Dimension candidates don't use fixed grid (8×3)** | **LayoutOptimizer.cpp:196-240** | **HIGH** | **Section 6 mandates 8×3 grid for ALL elements; dimensions use 5 offsets instead** |
+| Leader candidate shoulder length from geo (not fixed 0.5×dist) | LayoutOptimizer.cpp:161-162 | MEDIUM | AGENTS.md Section 6: distance from anchor to textPosition; shoulder = `geo.shoulderLength` |
+| `CandidateGenerator.cpp` not integrated with LayoutOptimizer.cpp | CandidateGenerator.cpp | MEDIUM | Two parallel candidate generation systems; unify |
+| `EvaluateCandidate` (GreedySolver) not used by `Solve()` | GreedySolver.cpp:125 | MEDIUM | `Solve()` uses per-element overloads; should use unified `EvaluateCandidate` |
+| No golden-file test fixtures | - | **HIGH** | AGENTS.md Section 12 requires 3 golden-file scenarios |
+| No Catch2 test infrastructure | - | MEDIUM | AGENTS.md Section 12 mandates Catch2 |
+
+### 🔧 Critical Fixes Required for Phase 7
+
+**1. Dimension Candidate Generation (AGENTS.md Section 6 violation)**
+```cpp
+// CURRENT (violates fixed grid):
+constexpr double kOffsets[5] = {-20.0, -10.0, 0.0, 10.0, 20.0};
+
+// REQUIRED (Section 6: 8 angles × 3 distances = 24 candidates):
+for (double angDeg : kCandidateAnglesDeg) {
+    for (double dist : kCandidateDistancesMm) {
+        // Generate perpendicular offset candidate at angle/distance
+    }
+}
+```
+
+**2. Unify Candidate Generation**
+- Remove `SolveLeadersGreedy` / `SolveDimensionsGreedy` (legacy)
+- Use `CandidateGenerator::GenerateForLeader/Dimension` everywhere
+- `Solve()` API already uses `ElementInput` with pre-generated candidates
+
+**3. Add Catch2 + Golden-file Tests**
+```cpp
+// Test scenarios per AGENTS.md Section 12:
+// 1. No-conflict baseline (Layout Stability)
+// 2. Dense-conflict (greedy relocates)
+// 3. Fully-obstructed (fallback candidate path)
+```
+
+### ✅ Verification (Ad-hoc)
+- **Build**: `python Tools/BuildAddOn.py -c config.json -v 25` → **SUCCESS**
+- **Script**: `hermes-verify-build-archicad-adapter.sh` → **SUCCESS**
 
 ### Phase 7 — Add Dimensions (`DimensionElement`, chains) — 🔧 PLANNING
 
@@ -91,41 +152,14 @@ git commit -m "описание"
 - Полная интеграция `DimensionElement` в LayoutOptimizer
 - Обновление ArchicadAdapter для сбора и применения цепочек размеров
 
-#### 📋 Требования к реализации (AGENTS.md Sections 5, 6, 7, 9, 10):
-
-**Data Model (Section 5):**
-- `DimensionGeometry` — immutable: `measurePoints[]`, `direction`
-- `DimensionLayout` — mutable: `textPosition`, `textBox`, `offset`
-- `DimensionElement` — `id`, `locked`, `geo`, `layout`
-
-**Candidate Generation (Section 6):**
-- Fixed grid: 8 angles × 3 distances = 24 raw candidates + fallback
-- Для Dimensions: offset вдоль перпендикуляра к dimension line
-- Offset values: -20, -10, 0, 10, 20 mm (per LayoutOptimizer.cpp:212)
-
-**Filtering Pipeline (Section 7):**
-- View boundary check
-- Forbidden geometry check (locked elements as obstacles)
-- Obstacle line crossing
-
-**Collision Detection (Section 8):**
-- `Rect::Intersects` (eps=1e-4) for text boxes
-- `SegmentsIntersect` for leader polylines vs obstacles
-
-**Cost Function (Section 9):**
-- Lexicographic `LayoutCost`: textCollision, geometryCollision, lineCollision, movement, leaderLength, alignmentPenalty
-
-**Solver (Section 10):**
-- `PlacementPriority`: typeRank=0 (Dimensions first), lockedNeighborCount, invalidCandidateCount, id
-- Greedy solver ordered by priority
-
 #### 🔧 Tactical Plan for Phase 7:
 
-**Phase 7.1 — LayoutOptimizer Core Updates (Pure C++)**
-- [ ] 7.1.1 Extend `GenerateDimensionCandidates` to use proper fixed grid (8 angles × 3 distances) + perpendicular offsets
-- [ ] 7.1.2 Ensure `DimensionElement` candidate generation follows Section 6 constants exactly
-- [ ] 7.1.3 Verify `EvaluateCandidate` works for Dimensions (no leaderPolyline, use offset for leaderLength)
-- [ ] 7.1.4 Add `CollectResult` / `ApplyChanges` support for dimension chains in LayoutOptimizer API
+**Phase 7.1 — LayoutOptimizer Core Fixes (Pure C++)** — *Must do first*
+- [ ] 7.1.1 Fix `GenerateDimensionCandidates` to use Section 6 fixed grid (8×3) + perpendicular offsets
+- [ ] 7.1.2 Remove legacy `SolveLeadersGreedy` / `SolveDimensionsGreedy` 
+- [ ] 7.1.3 Unify `EvaluateCandidateCost` overloads into single `EvaluateCandidate`
+- [ ] 7.1.4 Integrate `CandidateGenerator.cpp` with `LayoutOptimizer::Solve()` flow
+- [ ] 7.1.5 Add Catch2 unit tests + 3 golden-file test fixtures
 
 **Phase 7.2 — ArchicadAdapter Updates (ACAPI allowed)**
 - [ ] 7.2.1 Update `CollectElements()` to extract dimension chains (associated dimensions)
@@ -139,18 +173,6 @@ git commit -m "описание"
 - [ ] 7.3.3 Verify golden-file test: fully-obstructed scenario (fallback candidate)
 - [ ] 7.3.4 Build verification via `BuildAddOn.py`
 - [ ] 7.3.5 Manual Archicad test: dimensions reposition correctly, chains preserved, undo/redo works
-
-#### 📋 Декомпозиция задач для реализации:
-
-| Задача | Описание | Файлы | Приоритет |
-|--------|----------|-------|-----------|
-| 7.1 | LayoutOptimizer: Dimension candidates с fixed grid | `LayoutOptimizer.cpp`, `CandidateGenerator.cpp` | HIGH |
-| 7.2 | LayoutOptimizer: Cost evaluation для Dimensions | `LayoutOptimizer.cpp`, `GreedySolver.cpp` | HIGH |
-| 7.3 | ArchicadAdapter: Collect dimension chains | `ArchicadAdapter.cpp` | HIGH |
-| 7.4 | ArchicadAdapter: Apply dimension changes | `ArchicadAdapter.cpp` | HIGH |
-| 7.5 | Unit tests для Dimension logic | `*_test.cpp` (catch2) | MEDIUM |
-| 7.6 | Golden-file tests (3 сценария) | test fixtures + expected outputs | MEDIUM |
-| 7.7 | Build + manual test | `BuildAddOn.py` + Archicad | HIGH |
 
 #### ⚠️ Важные заметки (AGENTS.md):
 - **Section 2 Rule 1**: LayoutOptimizer core НЕ включает ACAPI headers
