@@ -104,6 +104,18 @@
 // ИСПРАВЛЕНИЕ: добавить макрос SAFE_GET(elem, guid) с проверкой err
 ```
 
+#### B5. "ACAPI_Element_Change error -2130313112" — memo required для dimensions/labels
+```cpp
+// ПРОВЕРИТЬ:
+// - ACAPI_Element_Change вызывается с APIMemoMask_All вместо 0
+// - ACAPI_Element_GetMemo вызывается ПЕРЕД ACAPI_Element_Change
+// - memo.paragraphs проверяется на nullptr
+// ИСПРАВЛЕНИЕ: добавлено в ArchicadAdapter.cpp
+//   - err = ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_All);
+//   - if (err != NoError) continue;
+//   - err = ACAPI_Element_Change (&elem, &mask, &memo, APIMemoMask_All, true);
+```
+
 ### C. План Phase 7 (Dimensions complete)
 
 1. **Verify Dimension implementation**:

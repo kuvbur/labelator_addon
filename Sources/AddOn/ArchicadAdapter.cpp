@@ -337,9 +337,16 @@ namespace ArchicadAdapter {
                     elem.label.u.text.loc = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
                 }
 
+                // Get memo for label (required for ACAPI_Element_Change)
                 API_ElementMemo memo = {};
                 BNZero (memo);
-                err = ACAPI_Element_Change (&elem, &mask, &memo, 0, true);
+                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
+                if (memoErr != NoError) {
+                    // No memo available, cannot modify safely
+                    continue;
+                }
+
+                err = ACAPI_Element_Change (&elem, &mask, &memo, APIMemoMask_All, true);
                 ACAPI_DisposeElemMemoHdls (&memo);
                 if (err != NoError)
                     return err;
@@ -361,20 +368,26 @@ namespace ArchicadAdapter {
                 if (err != NoError)
                     continue;
 
+                // Get memo for dimension (required for ACAPI_Element_Change)
+                API_ElementMemo memo = {};
+                BNZero (memo);
+                err = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
+                if (err != NoError || memo.paragraphs == nullptr) {
+                    // No memo available, cannot modify safely
+                    ACAPI_DisposeElemMemoHdls (&memo);
+                    continue;
+                }
+
                 // Build mask for dimension text position
                 API_Element mask;
                 BNZero (mask);
                 ACAPI_ELEMENT_MASK_CLEAR (mask);
                 ACAPI_ELEMENT_MASK_SET (mask, API_DimensionType, defNote.pos);
 
-                // Update text position
-                if (solved.layout.textPosition.x != 0.0 || solved.layout.textPosition.y != 0.0) {
-                    elem.dimension.defNote.pos = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
-                }
+                // Update text position - always update to the solved position
+                elem.dimension.defNote.pos = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
 
-                API_ElementMemo memo = {};
-                BNZero (memo);
-                err = ACAPI_Element_Change (&elem, &mask, &memo, 0, true);
+                err = ACAPI_Element_Change (&elem, &mask, &memo, APIMemoMask_All, true);
                 ACAPI_DisposeElemMemoHdls (&memo);
                 if (err != NoError)
                     return err;
