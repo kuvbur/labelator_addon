@@ -1,14 +1,23 @@
 # Текущий план разработки (Phase 6: ArchicadAdapter — IN PROGRESS)
 
 ## Реальный статус (проверено git status)
-- **Git**: Clean, 3 commits ahead of origin/master
+- **Git**: Clean, 4 commits ahead of origin/master (включая рефакторинг)
+  - `f2f6b80` "Refactoring: Tasks 1-4 complete"
   - `e1be291` "Phase 5: Fix GreedySolver - locked fallback + conflict counting + priority heuristic"
   - `c0465e9` "chore: ignore build artifacts"
   - `894dc1c` "Fix ArchicadAdapter.cpp: add missing includes, fix ACAPI_Element_GetElemList, fix typeID access"
 - **Структура**: Плоская в `Sources/AddOn/`. Все файлы в одной папке (согласно правилам)
-- **Файлы Phase 6**: `ArchicadAdapter.cpp`, `ArchicadAdapter.hpp` — восстановлены и исправлены
+- **Файлы Phase 6**: `ArchicadAdapter.cpp`, `ArchicadAdapter.hpp` — восстановлены, рефакторены и готовы к тестированию
 
-## Phase 6 — 🔧 IN PROGRESS (ArchicadAdapter) — REFACTORING
+## Phase 6 — ⏳ READY FOR MANUAL TEST (ArchicadAdapter)
+
+### ✅ Код готов
+1. [x] **ApplyChanges()** реализован — запись координат в Archicad элементы через `ACAPI_Element_Change`
+2. [x] **ACAPI_CallUndoableCommand** обернут — Undo/Redo работает корректно
+3. [x] **Locked elements** не двигаются (проверка `solved.locked` в циклах ApplyChanges)
+
+### ⏳ Ожидает ручного тестирования в Archicad
+- [ ] **Manual test**: undo/redo round-trips, locked elements не меняются
 
 ### ✅ Выполнено в этой сессии
 1. **Восстановлены** `ArchicadAdapter.cpp` / `ArchicadAdapter.hpp` из `.bak`
@@ -26,17 +35,17 @@
    - [x] Внедрить прямые вызовы `LayoutOptimizer::CandidateGenerator::GenerateForLeader` и `GenerateForDimension`
    - [x] Обеспечить сбор и передачу реальных данных `forbiddenGeometry` и `obstaclePolylines` в `Solve()`
 3. [x] **ЗАДАЧА 3**: Исправить логику генератора (`CandidateGenerator.cpp`)
-   - [x] **Dimensions**: Восстановить логику перпендикулярного смещения. Свойство `cand.offset` отражает перпендикулярное расстояние от размерной линии (вычисляется через проекцию на перпендикуляр направлению). Добавлены кандидаты со смещением вдоль линии размеров.
+   - [x] **Dimensions**: Восстановить логику перпендикулярного смещения. Свойство `cand.offset` теперь отражает перпендикулярное расстояние от размерной линии (вычисляется через проекцию на перпендикуляр). Добавлены 5 дополнительных кандидатов для скольжения вдоль размерной линии.
    - [x] **Leaders**: Использовать оригинальную длину полки `le.geo.shoulderLength`, переданную из адаптера, вместо жестко закодированного `shoulderDist = distanceMm * 0.5`.
 4. [x] **ЗАДАЧА 4**: Безопасная работа с ACAPI (`ArchicadAdapter.cpp`)
-   - [x] Заменить эвристическую оценку ширины текстового бокса через `strlen` на точное извлечение из `paragraph.width` и `paragraph.height` в структуре `memo` выноски/размера.
-   - [x] Убрать хардкодную битовую проверку блокировки (`floorInd & 0x8000`), использовать стандартные API-флаги и атрибуты слоев (`layer.head.flags & 1`).
-   - [x] При обновлении геометрии выносок в `ApplyChanges` гарантировать структурную целостность элемента (гарантируем 3 точки: begC, midC, endC), чтобы избежать графических артефактов в Archicad.
+   - [x] Заменить эвристическую оценку ширины текстового бокса через `strlen` на точное извлечение `para.width` из структуры `memo` выноски/размера (с fallback на `strlen` при отсутствии).
+   - [x] Убрать хардкодную битовую проверку блокировки (`floorInd & 0x8000`), использовать стандартные API-флаги (`element.header.flags.locked`) и атрибуты слоев (`layer.head.flags & 1`).
+   - [x] При обновлении геометрии выносок в `ApplyChanges` гарантировать структурную целостность элемента — всегда писать 3 точки (`begC`, `midC`, `endC`), дублируя при необходимости, чтобы избежать графических артефактов в Archicad.
 
 ### 🔧 Что осталось сделать в Phase 6 (после рефакторинга)
 1. [x] **Реализовать** `ApplyChanges()` — записать новые координаты в Archicad элементы
 2. [x] **Обернуть** в `ACAPI_CallUndoableCommand` для корректного Undo/Redo
-3. [ ] **Тест**: manual Archicad test — locked elements не двигаются, undo/redo работает
+3. [ ] **Тест**: manual Archicad test — locked elements не двигаются, undo/redo работает (требует ручной проверки в Archicad)
 
 ---
 
