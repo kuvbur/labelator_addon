@@ -21,7 +21,9 @@ namespace ArchicadAdapter {
 // Returns Leaders (labels) and Dimensions ready for LayoutOptimizer
 struct CollectResult {
     std::vector<LayoutOptimizer::LeaderElement> leaders;
+    std::vector<API_Guid> leaderGuids;
     std::vector<LayoutOptimizer::DimensionElement> dimensions;
+    std::vector<API_Guid> dimensionGuids;
     GSErrCode error = NoError;
 };
 
@@ -49,6 +51,9 @@ bool IsElementLocked (const API_Guid& guid);
 
 // Get element ID as uint64 for deterministic ordering
 LayoutOptimizer::ElementId GetElementId (const API_Guid& guid);
+
+// Full pipeline: Collect -> Solve -> Apply (wrapped in Undo scope)
+GSErrCode RunOptimization ();
 
 } // namespace ArchicadAdapter
 

@@ -34,6 +34,14 @@ namespace ArchicadAdapter {
         };
     }
 
+    API_Coord PaperSpaceToModel (const LayoutOptimizer::Point2D &paperCoord, double viewScaleDenom) {
+        const double scaleFactor = viewScaleDenom / 1000.0;
+        return {
+            paperCoord.x * scaleFactor,
+            -paperCoord.y * scaleFactor
+        };
+    }
+
     bool IsElementLocked (const API_Guid &guid) {
         API_Element element = {};
         BNZero (element);
@@ -194,6 +202,7 @@ namespace ArchicadAdapter {
                         le.geo.shoulderLength = std::sqrt (d.x * d.x + d.y * d.y);
                     }
 
+                    result.leaderGuids.push_back (guid);
                     result.leaders.push_back (std::move (le));
                 }
             }
@@ -231,12 +240,209 @@ namespace ArchicadAdapter {
                     de.layout.textBox = GetTextBoxPaperSpace (elem, viewScaleDenom);
                     de.layout.textPosition = de.layout.textBox.Center ();
 
+                    result.dimensionGuids.push_back (guid);
                     result.dimensions.push_back (std::move (de));
                 }
             }
         }
 
         return result;
+    }
+
+    // -----------------------------------------------------------------------------
+    // Apply changes back to Archicad elements (wrapped in Undo scope)
+    // -----------------------------------------------------------------------------
+
+    GSErrCode ApplyChanges (const CollectResult& original,
+                            const std::vector<LayoutOptimizer::LeaderElement>& solvedLeaders,
+                            const std::vector<LayoutOptimizer::DimensionElement>& solvedDimensions,
+                            double viewScaleDenom) {
+        // Wrap all modifications in a single undoable command
+        return ACAPI_CallUndoableCommand (GS::UniString ("Optimize Annotations"), [&] () -> GSErrCode {
+            GSErrCode err = NoError;
+
+            // Apply label changes
+            for (size_t i = 0; i < solvedLeaders.size () && i < original.leaderGuids.size (); ++i) {
+                const API_Guid &guid = original.leaderGuids[i];
+                const LayoutOptimizer::LeaderElement &solved = solvedLeaders[i];
+
+                if (solved.locked)
+                    continue;
+
+                API_Element elem = {};
+                BNZero (elem);
+                elem.header.guid = guid;
+
+                err = ACAPI_Element_Get (&elem);
+                if (err != NoError)
+                    continue;
+
+                // Build mask for label geometry changes
+                API_Element mask;
+                BNZero (mask);
+                ACAPI_ELEMENT_MASK_CLEAR (mask);
+                ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, begC);
+                ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, midC);
+                ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, endC);
+                if (elem.label.labelClass == APILblClass_Text) {
+                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.loc);
+                }
+
+                // Update label leader polyline (begC, midC, endC)
+                if (solved.layout.leaderPolyline.size () >= 1) {
+                    elem.label.begC = PaperSpaceToModel (solved.layout.leaderPolyline[0], viewScaleDenom);
+                }
+                if (solved.layout.leaderPolyline.size () >= 2) {
+                    elem.label.midC = PaperSpaceToModel (solved.layout.leaderPolyline[1], viewScaleDenom);
+                }
+                if (solved.layout.leaderPolyline.size () >= 3) {
+                    elem.label.endC = PaperSpaceToModel (solved.layout.leaderPolyline[2], viewScaleDenom);
+                } else if (solved.layout.leaderPolyline.size () == 2) {
+                    // If only 2 points, use second point as endC as well
+                    elem.label.endC = elem.label.midC;
+                }
+
+                // Update text position for text labels
+                if (elem.label.labelClass == APILblClass_Text) {
+                    elem.label.u.text.loc = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
+                }
+
+                // Change the element
+                API_ElementMemo memo = {};
+                BNZero (memo);
+                err = ACAPI_Element_Change (&elem, &mask, &memo, 0, true);
+                ACAPI_DisposeElemMemoHdls (&memo);
+                if (err != NoError)
+                    return err;
+            }
+
+            // Apply dimension changes
+            for (size_t i = 0; i < solvedDimensions.size () && i < original.dimensionGuids.size (); ++i) {
+                const API_Guid &guid = original.dimensionGuids[i];
+                const LayoutOptimizer::DimensionElement &solved = solvedDimensions[i];
+
+                if (solved.locked)
+                    continue;
+
+                API_Element elem = {};
+                BNZero (elem);
+                elem.header.guid = guid;
+
+                err = ACAPI_Element_Get (&elem);
+                if (err != NoError)
+                    continue;
+
+                // Build mask for dimension text position
+                API_Element mask;
+                BNZero (mask);
+                ACAPI_ELEMENT_MASK_CLEAR (mask);
+                ACAPI_ELEMENT_MASK_SET (mask, API_DimensionType, defNote.pos);
+
+                // Update text position
+                if (solved.layout.textPosition.x != 0.0 || solved.layout.textPosition.y != 0.0) {
+                    elem.dimension.defNote.pos = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
+                }
+
+                // Change the element
+                API_ElementMemo memo = {};
+                BNZero (memo);
+                err = ACAPI_Element_Change (&elem, &mask, &memo, 0, true);
+                ACAPI_DisposeElemMemoHdls (&memo);
+                if (err != NoError)
+                    return err;
+            }
+
+            return NoError;
+        });
+    }
+
+    // -----------------------------------------------------------------------------
+    // Full pipeline: Collect -> Solve -> Apply
+    // -----------------------------------------------------------------------------
+
+    GSErrCode SolveAndApply () {
+        // Collect elements
+        CollectResult collected = CollectElements ();
+        if (collected.error != NoError)
+            return collected.error;
+
+        // Prepare input for LayoutOptimizer
+        std::vector<LayoutOptimizer::ElementInput> inputs;
+
+        // Add leaders
+        for (const auto &le : collected.leaders) {
+            LayoutOptimizer::ElementInput input;
+            input.type = LayoutOptimizer::ElementType::Leader;
+            input.locked = le.locked;
+            input.id = le.id;
+            input.initialTextPosition = le.layout.textPosition;
+            // Generate candidates for this leader (simplified: use current position as one candidate)
+            LayoutOptimizer::Candidate cand;
+            cand.textPosition = le.layout.textPosition;
+            cand.textBox = le.layout.textBox;
+            cand.leaderPolyline = le.layout.leaderPolyline;
+            input.candidates.push_back (cand);
+            inputs.push_back (std::move (input));
+        }
+
+        // Add dimensions
+        for (const auto &de : collected.dimensions) {
+            LayoutOptimizer::ElementInput input;
+            input.type = LayoutOptimizer::ElementType::Dimension;
+            input.locked = de.locked;
+            input.id = de.id;
+            input.initialTextPosition = de.layout.textPosition;
+            LayoutOptimizer::Candidate cand;
+            cand.textPosition = de.layout.textPosition;
+            cand.textBox = de.layout.textBox;
+            input.candidates.push_back (cand);
+            inputs.push_back (std::move (input));
+        }
+
+        // Forbidden geometry (empty for now)
+        std::vector<LayoutOptimizer::Rect> forbiddenGeometry;
+        std::vector<std::vector<LayoutOptimizer::Point2D>> obstaclePolylines;
+
+        // Solve
+        LayoutOptimizer::SolveResult solveResult = LayoutOptimizer::Solve (inputs, forbiddenGeometry, obstaclePolylines);
+
+        // Extract solved leaders and dimensions
+        std::vector<LayoutOptimizer::LeaderElement> solvedLeaders;
+        std::vector<LayoutOptimizer::DimensionElement> solvedDimensions;
+
+        size_t leaderIdx = 0;
+        size_t dimIdx = 0;
+        for (size_t i = 0; i < solveResult.selectedCandidates.size () && i < inputs.size (); ++i) {
+            const LayoutOptimizer::Candidate &cand = solveResult.selectedCandidates[i];
+            const LayoutOptimizer::ElementInput &input = inputs[i];
+
+            if (input.type == LayoutOptimizer::ElementType::Leader && leaderIdx < collected.leaders.size ()) {
+                LayoutOptimizer::LeaderElement le = collected.leaders[leaderIdx];
+                le.layout.textPosition = cand.textPosition;
+                le.layout.textBox = cand.textBox;
+                le.layout.leaderPolyline = cand.leaderPolyline;
+                solvedLeaders.push_back (std::move (le));
+                ++leaderIdx;
+            } else if (input.type == LayoutOptimizer::ElementType::Dimension && dimIdx < collected.dimensions.size ()) {
+                LayoutOptimizer::DimensionElement de = collected.dimensions[dimIdx];
+                de.layout.textPosition = cand.textPosition;
+                de.layout.textBox = cand.textBox;
+                solvedDimensions.push_back (std::move (de));
+                ++dimIdx;
+            }
+        }
+
+        // Apply changes
+        double viewScaleDenom = GetActiveViewScaleDenominator ();
+        return ApplyChanges (collected, solvedLeaders, solvedDimensions, viewScaleDenom);
+    }
+
+    // -----------------------------------------------------------------------------
+    // Public entry point
+    // -----------------------------------------------------------------------------
+
+    GSErrCode RunOptimization () {
+        return SolveAndApply ();
     }
 
 } // namespace ArchicadAdapter

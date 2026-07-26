@@ -89,6 +89,17 @@ struct Rect {
     double Height() const { return bottom - top; }
     Point2D Center() const { return {(left + right) * 0.5, (top + bottom) * 0.5}; }
 
+    // Create rect from center point, width, height
+    static Rect FromCenter(const Point2D& center, double width, double height) {
+        Rect r;
+        r.left   = center.x - width * 0.5;
+        r.right  = center.x + width * 0.5;
+        r.top    = center.y - height * 0.5;
+        r.bottom = center.y + height * 0.5;
+        r.Normalize();
+        return r;
+    }
+
     bool operator==(const Rect& other) const {
         return left == other.left && top == other.top &&
                right == other.right && bottom == other.bottom;

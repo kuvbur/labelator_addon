@@ -3,6 +3,7 @@
 #include "APIEnvir.h"
 #include "Dimension_Main.hpp"
 #include "ResourceIds.hpp"
+#include "ArchicadAdapter.hpp"
 #ifdef TESTING
     #include "TestFunc.hpp"
 #endif
@@ -10,7 +11,13 @@
 // -----------------------------------------------------------------------------
 // Оптимизация расположения выносок
 // -----------------------------------------------------------------------------
-void Do_OptimizeAnnotations () { return; } // Do_OptimizeAnnotations
+void Do_OptimizeAnnotations () {
+    GSErrCode err = ArchicadAdapter::RunOptimization();
+    if (err != NoError) {
+        // Log error
+        ACAPI_WriteReport("LayoutOptimizer: Optimization failed with error %d", false, err);
+    }
+}
 
 static GSErrCode MenuCommandHandler (const API_MenuParams *menuParams) {
     GSErrCode err = NoError;
