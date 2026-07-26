@@ -110,12 +110,16 @@ namespace ArchicadAdapter {
             }
         }
 
-        // Позиция текста: refC для размеров, begC для выносок
+        // Позиция текста: refC для размеров, u.text.loc для выносок
         API_Coord pos = {};
         if (elem.header.typeID == API_DimensionID) {
             pos = elem.dimension.refC;
         } else if (elem.header.typeID == API_LabelID) {
-            pos = elem.label.begC;
+            if (elem.label.labelClass == APILblClass_Text) {
+                pos = elem.label.u.text.loc;
+            } else {
+                pos = elem.label.begC;
+            }
         }
 
         LayoutOptimizer::Point2D p = ModelToPaperSpace (pos, viewScaleDenom);
