@@ -311,12 +311,55 @@ grep -rn "unordered_map\|unordered_set" Sources/AddOn/LayoutOptimizer.hpp Source
 
 ---
 
-## 🛑 VERIFICATION POLICY (per user instruction)
+### 🛑 VERIFICATION POLICY (per user instruction)
 
 **NO Python prototype testing for C++ code.** Verification is ONLY:
 1. **Build success** in target environment (Archicad 25)
 2. **Manual testing** in Archicad with actual `.pln` files
 3. **Automated checks**: grep/syntax/compile checks — NOT behavioral Python simulations
+
+---
+
+### 🧪 TEST-DRIVEN DEVELOPMENT (TDD) — Iron Rule
+
+**NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+
+### Test File
+`Sources/AddOn/LayoutOptimizerTests.cpp` — C++ unit tests (pure C++17, NO ACAPI)
+
+### Tests (RED → GREEN cycle):
+1. `Test_SingleElement_NoMovement` — single label stays at fallback
+2. `Test_TwoElements_OK_LABEL_Stable` — far-apart labels don't move
+3. `Test_TwoElements_BAD_LABEL_Resolved` — overlapping labels resolved via nudge
+4. `Test_ThreeElements_ChainConflict` — chain collision resolved
+5. `Test_CSVFixture_Loaded` — CSV fixture loads correctly
+4. `Test_CSVFixture_OK_LABEL_Elements_Frozen` — OK_LABEL elements frozen at fallback
+
+### How to run tests WITHOUT Archicad:
+```bash
+# Option 1: Standalone test executable (CMake - pure C++17, NO Archicad)
+mkdir -p BuildTests && cd BuildTests
+cmake -G "Visual Studio 17 2022" -A x64 ..
+cmake --build . --config Debug
+LayoutOptimizerTests.exe
+
+# Option 2: Build as part of addon (for integration testing in Archicad)
+python Tools/BuildAddOn.py -c config.json -v 25
+# Tests compile as part of the .apx — run manually in Archicad test harness
+```
+
+### 🛑 HARD RULE — Build Gate
+
+**LayoutOptimizerTests.cpp MUST PASS ALL TESTS BEFORE ANY BUILD IS CONSIDERED VALID**
+
+- ✅ Build only starts AFTER `LayoutOptimizerTests.cpp` passes all tests
+- ✅ No code changes are considered "correct" until tests pass
+- ✅ If tests fail → STOP, fix the failing test first, then continue
+- ❌ No "I'll fix it later" — tests are the gate
+
+This is the primary verification mechanism. No manual Archicad testing, no Python scripts, no build artifacts are accepted as proof of correctness without passing the test suite first.
+
+---
 
 ---
 

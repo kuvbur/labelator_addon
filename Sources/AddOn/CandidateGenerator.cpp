@@ -133,12 +133,45 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
         shoulderLength = std::sqrt(shoulderVec.x * shoulderVec.x + shoulderVec.y * shoulderVec.y);
     }
 
-    // 1. Generate 24 raw candidates (8 angles × 3 distances)
+    // 1. Generate radial candidates ONLY at the original leader angle (preserve angle)
+    // Only generate candidates at the original leader angle to prevent rotation
+    double originalAngle = currentLayout.leaderAngle;
+    // Normalize to 0-360 range
+    while (originalAngle < 0) originalAngle += 360.0;
+    while (originalAngle >= 360.0) originalAngle -= 360.0;
+
+    // Find the closest angle in our fixed grid (0, 45, 90, 135, 180, 225, 270, 315)
+    // and only use angles within tolerance
+    const double kAngleTolerance = 10.0; // degrees
     for (int ai = 0; ai < kNumAngles; ++ai) {
         double angle = kCandidateAnglesDeg[ai];
+        double diff = std::abs(angle - originalAngle);
+        diff = std::min(diff, 360.0 - diff); // Handle wrap-around (e.g., 355 vs 5 degrees)
+        
+        if (diff <= kAngleTolerance) {
+            for (int di = 0; di < kNumDistances; ++di) {
+                double dist = kCandidateDistancesMm[di];
+                Candidate cand = MakeCandidateInternal (anchor, angle, dist, textBoxSize, false, shoulderLength);
+                candidates.push_back (std::move (cand));
+            }
+        }
+    }
+
+    // If no grid angle matches within tolerance, use the exact original angle
+    bool hasMatchingAngle = false;
+    for (int ai = 0; ai < kNumAngles; ++ai) {
+        double angle = kCandidateAnglesDeg[ai];
+        double diff = std::abs(angle - originalAngle);
+        diff = std::min(diff, 360.0 - diff);
+        if (diff <= kAngleTolerance) {
+            hasMatchingAngle = true;
+            break;
+        }
+    }
+    if (!hasMatchingAngle) {
         for (int di = 0; di < kNumDistances; ++di) {
             double dist = kCandidateDistancesMm[di];
-            Candidate cand = MakeCandidateInternal (anchor, angle, dist, textBoxSize, false, shoulderLength);
+            Candidate cand = MakeCandidateInternal (anchor, originalAngle, dist, textBoxSize, false, shoulderLength);
             candidates.push_back (std::move (cand));
         }
     }
