@@ -307,6 +307,15 @@ namespace ArchicadAdapter {
                 if (err != NoError)
                     continue;
 
+                // Get memo FIRST (before modifying element) - required for ACAPI_Element_Change
+                API_ElementMemo memo = {};
+                BNZero (memo);
+                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
+                if (memoErr != NoError) {
+                    // No memo available, cannot modify safely
+                    continue;
+                }
+
                 // Build mask for label geometry changes
                 API_Element mask;
                 BNZero (mask);
@@ -316,6 +325,7 @@ namespace ArchicadAdapter {
                 ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, endC);
                 if (elem.label.labelClass == APILblClass_Text) {
                     ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.loc);
+                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.angle);
                 }
 
                 // Update label leader polyline (begC, midC, endC)
@@ -339,15 +349,6 @@ namespace ArchicadAdapter {
                 // Update text position for text labels
                 if (elem.label.labelClass == APILblClass_Text) {
                     elem.label.u.text.loc = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
-                }
-
-                // Get memo for label (required for ACAPI_Element_Change)
-                API_ElementMemo memo = {};
-                BNZero (memo);
-                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
-                if (memoErr != NoError) {
-                    // No memo available, cannot modify safely
-                    continue;
                 }
 
                 err = ACAPI_Element_Change (&elem, &mask, &memo, APIMemoMask_All, true);
