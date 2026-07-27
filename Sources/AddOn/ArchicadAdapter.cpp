@@ -308,9 +308,12 @@ namespace ArchicadAdapter {
                     continue;
 
                 // Get memo FIRST (before modifying element) - required for ACAPI_Element_Change
+                // Используем только UTF16 маски (TextContentUni | ParagraphUni), чтобы избежать
+                // конфликта кодировок UTF8/UTF16 при передаче обеих версий текста (баг #2)
                 API_ElementMemo memo = {};
                 BNZero (memo);
-                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
+                constexpr UInt64 kMemoMask = APIMemoMask_ParagraphUni | APIMemoMask_TextContentUni;
+                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, kMemoMask);
                 if (memoErr != NoError) {
                     // No memo available, cannot modify safely
                     continue;
@@ -347,11 +350,19 @@ namespace ArchicadAdapter {
                 }
 
                 // Update text position for text labels
+                // textPosition — центр textBox, а u.text.loc — левый-нижний угол.
+                // Конвертируем центр → anchor, чтобы позиция не сдвигалась на каждом проходе (баг #1)
                 if (elem.label.labelClass == APILblClass_Text) {
-                    elem.label.u.text.loc = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
+                    double halfW = solved.layout.textBox.Width () * 0.5;
+                    double halfH = solved.layout.textBox.Height () * 0.5;
+                    LayoutOptimizer::Point2D anchor = {
+                        solved.layout.textPosition.x - halfW,
+                        solved.layout.textPosition.y + halfH    // +Y вниз, anchor ниже центра
+                    };
+                    elem.label.u.text.loc = PaperSpaceToModel (anchor, viewScaleDenom);
                 }
 
-                err = ACAPI_Element_Change (&elem, &mask, &memo, APIMemoMask_All, true);
+                err = ACAPI_Element_Change (&elem, &mask, &memo, kMemoMask, true);
                 ACAPI_DisposeElemMemoHdls (&memo);
                 if (err != NoError)
                     return err;
@@ -374,9 +385,11 @@ namespace ArchicadAdapter {
                     continue;
 
                 // Get memo for dimension (required for ACAPI_Element_Change)
+                // Используем только UTF16 маски (TextContentUni | ParagraphUni)
                 API_ElementMemo memo = {};
                 BNZero (memo);
-                err = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
+                constexpr UInt64 kDimMemoMask = APIMemoMask_ParagraphUni | APIMemoMask_TextContentUni;
+                err = ACAPI_Element_GetMemo (elem.header.guid, &memo, kDimMemoMask);
                 if (err != NoError || memo.paragraphs == nullptr) {
                     // No memo available, cannot modify safely
                     ACAPI_DisposeElemMemoHdls (&memo);
@@ -392,7 +405,7 @@ namespace ArchicadAdapter {
                 // Update text position - always update to the solved position
                 elem.dimension.defNote.pos = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
 
-                err = ACAPI_Element_Change (&elem, &mask, &memo, APIMemoMask_All, true);
+                err = ACAPI_Element_Change (&elem, &mask, &memo, kDimMemoMask, true);
                 ACAPI_DisposeElemMemoHdls (&memo);
                 if (err != NoError)
                     return err;
