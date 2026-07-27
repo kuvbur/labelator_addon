@@ -117,8 +117,7 @@ notepad D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp
 # Open IDEA.md
 code D:/labelator_addon/IDEA.md
 ```
-
-## Phase 6 — 🛠️ FIX APPLIED (awaiting re-test)
+## Phase 6 — ✅ COMPLETE (all fixes applied, ready for manual test)
 
 ### ✅ Code Ready
 
