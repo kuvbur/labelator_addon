@@ -230,7 +230,11 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
         // Текстовые рамки могут незначительно перекрываться (≤1.0mm) из-за
         // неточности определения fontHeight — это не считается конфликтом
         // для целей Layout Stability. Полный collision resolution использует eps=1e-4.
+        // Для проверки сужаем боксы на kLayoutStabilityEps/2 с каждой стороны.
         constexpr double kLayoutStabilityEps = 1.0;
+        auto ShrinkRect = [] (const Rect& r, double s) -> Rect {
+            return { r.left + s, r.top + s, r.right - s, r.bottom - s };
+        };
 
         // --- Layout Stability pre-check (Phase 6.5) ---
         // Если ВСЕ fallback-позиции (последний кандидат каждого элемента) не имеют
@@ -246,9 +250,11 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
                 const auto& other = elements[j];
                 if (other.locked) continue;
                 const Candidate& otherFallback = other.candidates.back();
-                // Используем kLayoutStabilityEps для игнорирования незначительных перекрытий
-                if (CountTextCollisions(fallback, otherFallback, kLayoutStabilityEps) > 0 ||
-                    CountGeometryCollisions(fallback, forbiddenGeometry, kLayoutStabilityEps) > 0 ||
+                // Создаём суженные копии боксов для проверки с Layout Stability epsilon
+                const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
+                const Rect ofbBox = ShrinkRect (otherFallback.textBox, kLayoutStabilityEps * 0.5);
+                if (fbBox.Intersects (ofbBox) ||
+                    CountGeometryCollisions(fallback, forbiddenGeometry) > 0 ||
                     CountLineCollisions(fallback, {otherFallback}, obstaclePolylines) > 0) {
                     allFallbacksStable = false;
                     break;
@@ -287,6 +293,24 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
                 Candidate chosen = element.candidates.back();
                 result.selectedCandidates[pe.originalIndex] = chosen;
                 placedCandidates.push_back(chosen);
+                continue;
+            }
+
+            // Layout Stability check: если fallback не имеет значимых пересечений
+            // (с учётом kLayoutStabilityEps) с уже размещёнными, используем его без поиска.
+            const Candidate& fallback = element.candidates.back();
+            bool fallbackStable = true;
+            const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
+            for (const Candidate& placed : placedCandidates) {
+                const Rect plBox = ShrinkRect (placed.textBox, kLayoutStabilityEps * 0.5);
+                if (fbBox.Intersects (plBox)) {
+                    fallbackStable = false;
+                    break;
+                }
+            }
+            if (fallbackStable) {
+                result.selectedCandidates[pe.originalIndex] = fallback;
+                placedCandidates.push_back(fallback);
                 continue;
             }
 
