@@ -89,7 +89,9 @@ namespace ArchicadAdapter {
 
         API_ElementMemo memo = {};
         BNZero (memo);
-        GSErrCode err = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_TextContent);
+        // AC25: Без маски (0) = получить все данные memo, включая Unicode paragraphs
+        // (официальный пример Do_Label_Edit использует тот же паттерн)
+        GSErrCode err = ACAPI_Element_GetMemo (elem.header.guid, &memo, 0);
         if (err != NoError)
             return box;
 

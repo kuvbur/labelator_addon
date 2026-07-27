@@ -44,7 +44,8 @@ GSErrCode ExportLabelsGeometryToCSV (const char* filename) {
 
         API_ElementMemo memo;
         BNZeroMemory (&memo, sizeof (API_ElementMemo));
-        ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_TextContent);
+        // AC25: Без маски (0) = получить все данные memo, включая Unicode paragraphs
+        ACAPI_Element_GetMemo (guid, &memo, 0);
 
         double textWidth = 50.0;
         double textHeight = 3.0;
@@ -109,7 +110,8 @@ GSErrCode ExportDimensionsGeometryToCSV (const char* filename) {
 
         API_ElementMemo memo;
         BNZeroMemory (&memo, sizeof (API_ElementMemo));
-        ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_TextContent);
+        // AC25: Без маски (0) = получить все данные memo, включая Unicode paragraphs
+        ACAPI_Element_GetMemo (guid, &memo, 0);
 
         double textWidth = 50.0;
         double textHeight = 3.0;
