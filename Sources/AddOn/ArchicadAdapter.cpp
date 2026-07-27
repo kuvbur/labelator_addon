@@ -27,15 +27,12 @@ namespace ArchicadAdapter {
 
     LayoutOptimizer::Point2D ModelToPaperSpace (const API_Coord &modelCoord, double viewScaleDenom) {
         const double scaleFactor = 1; // В Архикаде координаты не зависят от масштаба!
-        return {
-            modelCoord.x * scaleFactor,
-            -modelCoord.y * scaleFactor // Y-flip: model +Y up -> paper +Y down
-        };
+        return {modelCoord.x * scaleFactor, modelCoord.y * scaleFactor};
     }
 
     API_Coord PaperSpaceToModel (const LayoutOptimizer::Point2D &paperCoord, double viewScaleDenom) {
         const double scaleFactor = 1; // В Архикаде координаты не зависят от масштаба!
-        return {paperCoord.x * scaleFactor, -paperCoord.y * scaleFactor};
+        return {paperCoord.x * scaleFactor, paperCoord.y * scaleFactor};
     }
 
     // -----------------------------------------------------------------------------

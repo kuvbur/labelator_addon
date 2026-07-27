@@ -305,9 +305,20 @@ grep -rn "ACAPI_" Sources/AddOn/LayoutOptimizer.hpp Sources/AddOn/CandidateGener
 grep -rn "unordered_map\|unordered_set" Sources/AddOn/LayoutOptimizer.hpp Sources/AddOn/CandidateGenerator.* Sources/AddOn/GreedySolver.*
 ```
 
-> Fixed two bugs from the previous version of this checklist: (1) the `unordered_map|unordered_set` pattern had an unescaped `|` — plain (BRE) `grep` treats that as a literal pipe character, not alternation, so the check would silently pass no matter what the files contained; corrected to `unordered_map\|unordered_set`. (2) it grepped a `Sources/AddOn/LayoutOptimizer/` directory that doesn't exist given the flat structure documented above — corrected to the actual file `LayoutOptimizer.hpp`.
+> Fixed two bugs from the previous version of this checklist: (1) the `unordered_map|unordered_set` pattern had an unescaped `|` — plain (BRE) `grep` treats that as a literal pipe character, not alternation, so the check would silently pass no matter what the files contained; corrected to `unordered_map\\|unordered_set`. (2) it grepped a `Sources/AddOn/LayoutOptimizer/` directory that doesn't exist given the flat structure documented above — corrected to the actual file `LayoutOptimizer.hpp`.
 
 **If a violation is found → STOP, open an issue, do not patch it silently!**
+
+---
+
+## 🛑 VERIFICATION POLICY (per user instruction)
+
+**NO Python prototype testing for C++ code.** Verification is ONLY:
+1. **Build success** in target environment (Archicad 25)
+2. **Manual testing** in Archicad with actual `.pln` files
+3. **Automated checks**: grep/syntax/compile checks — NOT behavioral Python simulations
+
+Previously used Python verifier (`Tools/verify_layout.py`) and ad-hoc scripts have been removed from the repository. CSV fixtures in `Test_file/` are preserved for manual inspection only.
 
 ---
 

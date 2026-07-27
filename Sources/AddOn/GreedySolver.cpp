@@ -180,34 +180,7 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
         return { r.left + s, r.top + s, r.right - s, r.bottom - s };
     };
     
-    // -----------------------------------------------------------------------------
-    // Layout Stability classification: OK_LABEL (stable) vs BAD_LABEL (needs solving)
-    // -----------------------------------------------------------------------------
-    // OK_LABEL: элемент, чей fallback text box (shrunk) НЕ пересекается
-    // ни с каким другим элементом. Такие элементы заморозываются на fallback.
-    // BAD_LABEL: элемент с хотя бы одним пересечением — идет в greedy solver.
-    std::vector<bool> isOKLabel (elements.size(), false);
-    for (size_t i = 0; i < elements.size(); ++i) {
-        if (elements[i].locked) {
-            isOKLabel[i] = true; // Locked элементы заморожены
-            continue;
-        }
-        const Candidate& fallback = elements[i].candidates.back();
-        const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
-        bool hasConflict = false;
-        for (size_t j = 0; j < elements.size() && !hasConflict; ++j) {
-            if (i == j) continue;
-            if (elements[j].locked) continue;
-            const Candidate& otherFallback = elements[j].candidates.back();
-            const Rect ofbBox = ShrinkRect (otherFallback.textBox, kLayoutStabilityEps * 0.5);
-            if (fbBox.Intersects (ofbBox)) {
-                hasConflict = true;
-            }
-        }
-        isOKLabel[i] = !hasConflict;
-    }
-    
-    // Build placement priority order (only for BAD_LABEL elements)
+    // Build placement priority order
     struct PrioritizedElement {
         PlacementPriority priority;
         size_t originalIndex;
@@ -258,46 +231,38 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
                   return a.priority < b.priority;
               });
     
-    // Pre-place OK_LABEL elements at their fallback positions (frozen)
+    // Greedy placement: for each element in priority order, pick best valid candidate
     std::vector<Candidate> placedCandidates;
     placedCandidates.reserve(elements.size());
     result.selectedCandidates.resize(elements.size());
     
-    for (size_t i = 0; i < elements.size(); ++i) {
-        if (isOKLabel[i] || elements[i].locked) {
-            const Candidate& fallback = elements[i].candidates.back();
-            result.selectedCandidates[i] = fallback;
-            placedCandidates.push_back(fallback);
-        }
-    }
-    
-    // If ALL elements are OK_LABEL or locked, we're done
-    bool allFrozen = true;
-    for (size_t i = 0; i < elements.size(); ++i) {
-        if (!isOKLabel[i] && !elements[i].locked) {
-            allFrozen = false;
-            break;
-        }
-    }
-    if (allFrozen) {
-        result.zeroCollisionSolution = true;
-        result.log.finalConflictCount = 0;
-        result.log.totalCandidatesGenerated = 0;
-        for (const auto& el : elements) {
-            result.log.totalCandidatesGenerated += el.candidates.size();
-        }
-        return result;
-    }
-    
-    // -----------------------------------------------------------------------------
-    // Greedy Solve for BAD_LABEL elements only
-    // -----------------------------------------------------------------------------
-    // Process elements in priority order, skipping OK_LABEL/locked
     for (const auto& pe : prioritized) {
         const auto& element = elements[pe.originalIndex];
         
-        // Skip OK_LABEL and locked elements (already placed)
-        if (isOKLabel[pe.originalIndex] || element.locked) {
+        // Locked elements: use their fallback candidate (LAST in list, index = candidates.size() - 1)
+        // Per AGENTS.md Section 7: fallback is added last and bypasses filters
+        if (element.locked) {
+            Candidate chosen = element.candidates.back();
+            result.selectedCandidates[pe.originalIndex] = chosen;
+            placedCandidates.push_back(chosen);
+            continue;
+        }
+        
+        // Layout Stability check: если fallback не имеет значимых пересечений
+        // (с учётом kLayoutStabilityEps) с уже размещёнными, используем его без поиска.
+        const Candidate& fallback = element.candidates.back();
+        bool fallbackStable = true;
+        const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
+        for (const Candidate& placed : placedCandidates) {
+            const Rect plBox = ShrinkRect (placed.textBox, kLayoutStabilityEps * 0.5);
+            if (fbBox.Intersects (plBox)) {
+                fallbackStable = false;
+                break;
+            }
+        }
+        if (fallbackStable) {
+            result.selectedCandidates[pe.originalIndex] = fallback;
+            placedCandidates.push_back(fallback);
             continue;
         }
         
