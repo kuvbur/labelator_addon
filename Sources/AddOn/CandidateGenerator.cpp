@@ -150,6 +150,7 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
     fallback.leaderPolyline = currentLayout.leaderPolyline;
     fallback.leaderAngle = currentLayout.leaderAngle;
     fallback.valid = true; // Unconditionally valid (bypasses filters)
+    fallback.isFallback = true;
     candidates.push_back (std::move (fallback));
 
     // 3. Generate LOCAL candidates: small perturbations around fallback
@@ -274,23 +275,24 @@ std::vector<Candidate> CandidateGenerator::GenerateForDimension (
             currentLayout.textPosition.y + perpDir.y * off
         };
         cand.offset = off; // This is the parallel offset along the dimension line
-        cand.angle = 0.0;
 
-        double w = textBoxSize.Width();
-        double h = textBoxSize.Height();
-        cand.textBox.left = cand.textPosition.x - w * 0.5;
-        cand.textBox.right = cand.textPosition.x + w * 0.5;
-        cand.textBox.top = cand.textPosition.y - h * 0.5;
-        cand.textBox.bottom = cand.textPosition.y + h * 0.5;
-        cand.leaderPolyline = { cand.textPosition };
+            double w = textBoxSize.Width();
+            double h = textBoxSize.Height();
+            cand.textBox.left = cand.textPosition.x - w * 0.5;
+            cand.textBox.right = cand.textPosition.x + w * 0.5;
+            cand.textBox.top = cand.textPosition.y - h * 0.5;
+            cand.textBox.bottom = cand.textPosition.y + h * 0.5;
+                // Build a proper 2-point leader polyline for dimension candidates
+                // Measure point -> text position (allows line collision detection)
+                cand.leaderPolyline = { measurePoint, cand.textPosition };
 
-        // Quick boundary check
-        if (cand.textBox.left < viewBoundary.left || cand.textBox.right > viewBoundary.right ||
-            cand.textBox.top < viewBoundary.top || cand.textBox.bottom > viewBoundary.bottom) {
-            cand.valid = false;
-        } else {
-            cand.valid = true;
-        }
+                // Quick boundary check
+                if (cand.textBox.left < viewBoundary.left || cand.textBox.right > viewBoundary.right ||
+                    cand.textBox.top < viewBoundary.top || cand.textBox.bottom > viewBoundary.bottom) {
+                    cand.valid = false;
+                } else {
+                    cand.valid = true;
+                }
         candidates.push_back (std::move (cand));
     }
 
@@ -300,28 +302,28 @@ std::vector<Candidate> CandidateGenerator::GenerateForDimension (
     fallback.textBox = currentLayout.textBox;
     fallback.offset = currentLayout.offset;
     fallback.valid = true;
+    fallback.isFallback = true;
     candidates.push_back (std::move (fallback));
 
     // 4. Filter candidates (fallback bypasses filters)
-    // Pass the obstaclePolylines parameter to PassesObstacleLines instead of empty placeholder
-    const size_t fallbackIndex = candidates.size() - 1;
+    // Use isFallback field instead of positional index
 
     for (size_t i = 0; i < candidates.size(); ++i) {
-        Candidate& cand = candidates[i];
-        bool isFallback = (i == fallbackIndex);
+            Candidate& cand = candidates[i];
+            bool isFallback = cand.isFallback;
 
-        if (isFallback) {
-            continue;
+            if (isFallback) {
+                continue;
+            }
+
+            if (!PassesViewBoundary (cand, viewBoundary) ||
+                !PassesForbiddenGeometry (cand, obstacles) ||
+                !PassesObstacleLines (cand, obstaclePolylines)) {
+                cand.valid = false;
+            }
         }
 
-        if (!PassesViewBoundary (cand, viewBoundary) ||
-            !PassesForbiddenGeometry (cand, obstacles) ||
-            !PassesObstacleLines (cand, obstaclePolylines)) {
-            cand.valid = false;
-        }
+        return candidates;
     }
-
-    return candidates;
-}
 
 } // namespace LayoutOptimizer

@@ -170,6 +170,7 @@ struct Candidate {
     double angle = 0.0;          // Degrees, clockwise from +X
     double leaderAngle = 0.0;    // Degrees, for leader orientation
     bool valid = true;           // False after filtering (but fallback is always valid)
+    bool isFallback = false;     // True for the guaranteed fallback candidate
 };
 
 // Fixed candidate generation grid — Section 6 constants (DO NOT CHANGE without updating AGENTS.md)

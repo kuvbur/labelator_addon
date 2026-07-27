@@ -76,10 +76,17 @@ namespace ArchicadAdapter {
     }
 
     LayoutOptimizer::ElementId GetElementId (const API_Guid &guid) {
+        // Fold full 128-bit GUID into 64-bit hash to avoid collisions
+        // Uses XOR-folding of all 16 bytes (time_low, time_mid, time_hi_and_version, clock_seq, node)
         LayoutOptimizer::ElementId id = 0;
-        id |= static_cast<LayoutOptimizer::ElementId> (guid.time_low) << 32;
-        id |= static_cast<LayoutOptimizer::ElementId> (guid.time_mid) << 16;
-        id |= static_cast<LayoutOptimizer::ElementId> (guid.time_hi_and_version);
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&guid);
+        for (size_t i = 0; i < 16; ++i) {
+            id ^= static_cast<LayoutOptimizer::ElementId>(bytes[i]) << (i % 8) * 8;
+        }
+        // Also incorporate time fields for better distribution
+        id ^= static_cast<LayoutOptimizer::ElementId>(guid.time_low) << 32;
+        id ^= static_cast<LayoutOptimizer::ElementId>(guid.time_mid) << 16;
+        id ^= static_cast<LayoutOptimizer::ElementId>(guid.time_hi_and_version);
         return id;
     }
 
