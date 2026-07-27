@@ -176,6 +176,12 @@ This is correct - OK_LABEL pair has 0.8mm text box overlap, so greedy solver SHO
 - [ ] Verify: Text content preserved (no "O" truncation or "ꇐꋐ鷐〭〱" corruption)
 - [ ] Verify: Undo/Redo works, locked elements unchanged
 
+**Test Artifacts Ready:**
+- `Build/labelator/25/Debug/labelator.apx` — compiled addon
+- `test_25.pln` / `test_25.bpn` — test project
+- `Test_file/debug_labels_before.csv` — input fixture (4 labels: 2 OK, 2 BAD)
+- `Tools/test_csv_optimizer.py` — automated CSV verification script
+
 ---
 
 ## 📋 Action Plan After Manual Testing
