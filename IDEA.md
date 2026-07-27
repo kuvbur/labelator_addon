@@ -1,169 +1,299 @@
-# Текущий план разработки (Phase 6: ArchicadAdapter — FIX APPLIED)
+# Current Development Plan (Phase 6: ArchicadAdapter — FIX APPLIED)
 
-## Реальный статус (проверено git status)
-- **Git**: Clean, 5 commits ahead of origin/master (включая рефакторинг)
+> ## 🚫 HARD RULE — Bug Fix Gate (read this before doing anything else)
+>
+> If manual testing in Archicad finds **any** bug — a crash, incorrect behavior, a failed undo/redo, a locked element that moved, a corrupted document, anything — **development STOPS immediately.**
+>
+> - Do **not** start Phase 7, Phase 8, or any other new feature.
+> - Do **not** "continue anyway" because the bug looks minor, unrelated, or annoying to chase down.
+> - Fix the bug(s) found. Then get a **clean manual re-test** confirming the fix. Only after that may forward progress resume.
+> - This gate applies regardless of which phase is "next" per AGENTS.md §13 — the implementation order in §13 assumes each phase actually passed its DoD; an unresolved bug means the DoD was not met, full stop.
+> - If you're unsure whether something found counts as a "bug" for this gate: it does. Treat ambiguity here the same as the Ambiguity Protocol (AGENTS.md §14) — the conservative read is to stop, not to proceed.
+
+## Actual Status (verified via `git status`)
+
+- **Git**: Clean, 5 commits ahead of origin/master (includes a refactor)
   - `5a27590` "fix(archicadadapter): Add ACAPI_Element_GetMemo before ACAPI_Element_Change"
   - `f2f6b80` "Refactoring: Tasks 1-4 complete"
   - `e1be291` "Phase 5: Fix GreedySolver - locked fallback + conflict counting + priority heuristic"
   - `c0465e9` "chore: ignore build artifacts"
   - `894dc1c` "Fix ArchicadAdapter.cpp: add missing includes, fix ACAPI_Element_GetElemList, fix typeID access"
-- **Структура**: Плоская в `Sources/AddOn/`. Все файлы в одной папке (согласно правилам)
-- **Файлы Phase 6**: `ArchicadAdapter.cpp`, `ArchicadAdapter.hpp` — код исправлен, готов к повторному тестированию
+- **Structure**: Flat, under `Sources/AddOn/`. All files in one directory (per project rules).
+- **Phase 6 files**: `ArchicadAdapter.cpp`, `ArchicadAdapter.hpp` — code fixed, ready for re-test.
 
-## Phase 6 — 🛠️ FIX APPLIED (ожидает повторного теста)
+## 📁 Project Structure (for quick navigation — keep this up to date, do not delete) — **full absolute paths**
 
-### ✅ Код готов
-1. [x] **ApplyChanges()** реализован — запись координат в Archicad элементы через `ACAPI_Element_Change`
-2. [x] **ACAPI_CallUndoableCommand** обернут — Undo/Redo работает корректно
-3. [x] **Locked elements** не двигаются (проверка `solved.locked` в циклах ApplyChanges)
+Base directory: `D:/labelator_addon`
 
-### ✅ ИСПРАВЛЕНО после первого теста (error -2130313112)
-- [x] Добавлен `ACAPI_Element_GetMemo` перед `ACAPI_Element_Change`
-- [x] Использован `APIMemoMask_All` вместо `0`
-- [x] Проверка `memo.paragraphs != nullptr` для dimensions
+### Core LayoutOptimizer (pure C++17, NO ACAPI dependencies)
 
-### ✅ ИСПРАВЛЕНО: текстовая позиция выносок (GetTextBoxPaperSpace)
-- [x] Использован `elem.label.u.text.loc` вместо `elem.label.begC` для текстовых выносок
-- [x] Это исправляет неверное размещение текстового бокса, вызывавшее "разлетание" выносок
+| File                     | Full Path                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                                    | Phase          |
+| ------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `LayoutOptimizer.hpp`    | `D:/labelator_addon/Sources/AddOn/LayoutOptimizer.hpp`    | Main header: Point2D, Rect, ElementType, Leader/Dimension Geometry/Layout/Element, Candidate, LayoutCost, PlacementPriority, ElementInput, SolveResult, constants kCandidateAnglesDeg/kCandidateDistancesMm, functions SegmentsIntersect/PolylinesIntersect/TextBoxIntersectsPolyline, declarations of Solve/CountTextCollisions/CountGeometryCollisions/CountLineCollisions/ComputeMovement/ComputeLeaderLength/ComputeAlignmentPenalty/EvaluateCandidate | 1, 5, 8, 9, 10 |
+| `CandidateGenerator.hpp` | `D:/labelator_addon/Sources/AddOn/CandidateGenerator.hpp` | Candidate generator interface                                                                                                                                                                                                                                                                                                                                                                             | 3, 4, 7        |
+| `CandidateGenerator.cpp` | `D:/labelator_addon/Sources/AddOn/CandidateGenerator.cpp` | Implementation: GenerateForLeader (radial), GenerateForDimension (radial + 5 perpendicular offsets), Filtering (view boundary, forbidden geometry, obstacle lines), MakeCandidateInternal                                                                                                                                                                                                                | 3, 4, 7        |
+| `GreedySolver.cpp`       | `D:/labelator_addon/Sources/AddOn/GreedySolver.cpp`       | Greedy Solver implementation: Solve(), EvaluateCandidate, CountTextCollisions, CountGeometryCollisions, CountLineCollisions, ComputeMovement, ComputeLeaderLength, ComputeAlignmentPenalty. PlacementPriority-based ordering.                                                                                                                                                                            | 5              |
 
-### ✅ ИСПРАВЛЕНО: исчезновение текста выносок при оптимизации
-- [x] Добавлен `u.text.angle` в маску ACAPI_ELEMENT_MASK_SET для текстовых выносок
-- [x] Memo получается ДО модификации элемента (best practice, избегает потери контента)
-- [x] Убран дублирующий вызов GetMemo после построения маски
+### ArchicadAdapter (ACAPI allowed — ONLY place with Archicad SDK includes)
 
-### ⏳ Ожидает ручного тестирования в Archicad
-- [ ] **Manual test**: undo/redo round-trips, locked elements не меняются
+| File                  | Full Path                                              | Purpose                                                                                                                                                                                                                                                                                | Phase |
+| --------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `ArchicadAdapter.hpp` | `D:/labelator_addon/Sources/AddOn/ArchicadAdapter.hpp` | Interface: CollectResult, CollectElements(), ModelToPaperSpace(), GetTextBoxPaperSpace(), GetLeaderPolylinePaperSpace(), GetDimensionMeasurePoints(), GetActiveViewScaleDenominator(), IsElementLocked(), GetElementId(), RunOptimization()                                            | 2     |
+| `ArchicadAdapter.cpp` | `D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp` | Implementation: CollectElements → Labels + Dimensions, Model→Paper Space, GetTextBoxPaperSpace (memo.paragraphs), Lock detection (floorInd & 0x8000 + layer.head.flags & 1), ApplyChanges (GetMemo BEFORE Change, mask u.text.loc + u.text.angle, 3 points begC/midC/endC), SolveAndApply() | 2, 6  |
+
+### Debug Export
+
+| File              | Full Path                                          | Purpose                                                                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DebugExport.hpp` | `D:/labelator_addon/Sources/AddOn/DebugExport.hpp` | CSV export: ExportLabelsGeometryToCSV, ExportDimensionsGeometryToCSV, ExportObstaclesToCSV, RunFullDebugExport. All fields: begC/midC/endC, u.text.loc/angle, anchorPoint, leaderShape, labelClass, text box, text content. |
+
+#### Debug Data Fixtures (read-only — for manual/regression testing)
+
+Base folder: `D:\labelator_addon\debug_data_dontt_edit` — CSV files with previously-read geometry, exported via `DebugExport`. The folder name marks it read-only intentionally: never overwrite, regenerate, or "clean up" its contents without explicit instruction.
+
+| Subfolder    | Case                                              | Expected optimizer behavior                                                                                                                                                    |
+| ------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bad_before` | Leaders overlap / collide                         | Solver must resolve the conflicts — this is the practical stand-in for the dense-conflict golden-file scenario in AGENTS.md §12 (scenario 2).                                    |
+| `good_before` | Leaders already correctly placed, no conflicts    | Optimizer must leave positions untouched — this is the live regression fixture for AGENTS.md §2 Rule 4 (Layout Stability) and §12's no-conflict golden-file baseline (scenario 1). Do not "fix" anything here; if the optimizer moves anything in this set, that's a Layout Stability bug. |
+
+### Auxiliary
+
+| File                 | Full Path                                             | Purpose                                                                                                                          |
+| -------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `Dimension_Main.hpp` | `D:/labelator_addon/Sources/AddOn/Dimension_Main.hpp` | Entry-point header                                                                                                             |
+| `Dimension_Main.cpp` | `D:/labelator_addon/Sources/AddOn/Dimension_Main.cpp` | AddOn entry point (RegisterInterface, Initialize, FreeData, Do_OptimizeAnnotations) — calls `ArchicadAdapter::RunOptimization()` |
+| `TestFunc.hpp`       | `D:/labelator_addon/Sources/AddOn/TestFunc.hpp`       | Test functions (header)                                                                                                        |
+| `TestFunc.cpp`       | `D:/labelator_addon/Sources/AddOn/TestFunc.cpp`       | Test functions (implementation)                                                                                               |
+| `APICommon25.h`      | `D:/labelator_addon/Sources/AddOn/APICommon25.h`      | ACAPI utilities (header)                                                                                                       |
+| `APICommon25.c`      | `D:/labelator_addon/Sources/AddOn/APICommon25.c`      | ACAPI utilities (implementation)                                                                                              |
+| `APIEnvir.h`         | `D:/labelator_addon/Sources/AddOn/APIEnvir.h`         | API environment                                                                                                                |
+| `ResourceIds.hpp`    | `D:/labelator_addon/Sources/AddOn/ResourceIds.hpp`    | Resource IDs                                                                                                                   |
+
+### Build & Config
+
+| File             | Full Path                              | Purpose                                                                                          |
+| ---------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `BuildAddOn.py`  | `D:/labelator_addon/Tools/BuildAddOn.py` | Build script: `python Tools/BuildAddOn.py -c config.json -v 25 [--release] [--package] [--lsp]` |
+| `config.json`    | `D:/labelator_addon/config.json`         | Build config (languages, versions)                                                                |
+| `CMakeLists.txt` | `D:/labelator_addon/CMakeLists.txt`      | CMake configuration                                                                                |
+| `AGENTS.md`      | `D:/labelator_addon/AGENTS.md`           | Project rules (required reading)                                                                   |
+| `IDEA.md`        | `D:/labelator_addon/IDEA.md`             | This file (execution plan)                                                                         |
+
+### Build Artifacts (in `.gitignore`)
+
+| Path                         | Purpose                                              |
+| ---------------------------- | ------------------------------------------------------- |
+| `D:/labelator_addon/Build/`  | Build artifacts (DevKit, LspCompileCommands, Package) |
+| `D:/labelator_addon/.cache/` | Cache                                                  |
+
+### Key Functions — Direct Line References (file:line)
+
+⚠️ **Staleness warning:** last verified against commit `5a27590`. Any commit after that may have shifted these line numbers. Re-verify via Clangd MCP / grep (AGENTS.md §20) before trusting a line number here — do not treat this table as ground truth once `HEAD` has moved past that commit.
+
+```
+CollectElements                     → D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp:178
+GetTextBoxPaperSpace (u.text.loc)  → D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp:87
+IsElementLocked                     → D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp:51
+ApplyChanges (Undo + GetMemo)       → D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp:287
+ModelToPaperSpace (Y-flip)          → D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp:32
+GenerateForLeader                   → D:/labelator_addon/Sources/AddOn/CandidateGenerator.cpp:114
+GenerateForDimension                → D:/labelator_addon/Sources/AddOn/CandidateGenerator.cpp:180
+GreedySolver::Solve                 → D:/labelator_addon/Sources/AddOn/GreedySolver.cpp:166
+LayoutOptimizer::Solve (decl)       → D:/labelator_addon/Sources/AddOn/LayoutOptimizer.hpp:364
+SegmentsIntersect                   → D:/labelator_addon/Sources/AddOn/LayoutOptimizer.hpp:212
+DebugExport::RunFullDebugExport     → D:/labelator_addon/Sources/AddOn/DebugExport.hpp:233
+Do_OptimizeAnnotations (entry)      → D:/labelator_addon/Sources/AddOn/Dimension_Main.cpp:15
+```
+
+### Quick File-Open Commands
+
+```bash
+# Open in VS Code
+code D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp
+
+# Open in Notepad
+notepad D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp
+
+# Open IDEA.md
+code D:/labelator_addon/IDEA.md
+```
+
+## Phase 6 — 🛠️ FIX APPLIED (awaiting re-test)
+
+### ✅ Code Ready
+
+1. [x] **ApplyChanges()** implemented — writes coordinates to Archicad elements via `ACAPI_Element_Change`
+2. [x] **ACAPI_CallUndoableCommand** wraps it — Undo/Redo works correctly
+3. [x] **Locked elements** don't move (checked via `solved.locked` in the ApplyChanges loops)
+
+### ✅ FIXED after first test (error -2130313112)
+
+- [x] Added `ACAPI_Element_GetMemo` before `ACAPI_Element_Change`
+- [x] Used `APIMemoMask_All` instead of `0`
+- [x] Check `memo.paragraphs != nullptr` for dimensions
+
+### ✅ FIXED: leader text position (GetTextBoxPaperSpace)
+
+- [x] Used `elem.label.u.text.loc` instead of `elem.label.begC` for text leaders
+- [x] This fixes the incorrect text box placement that was causing leaders to "scatter"
+
+### ✅ FIXED: leader text disappearing during optimization
+
+- [x] Added `u.text.angle` to the `ACAPI_ELEMENT_MASK_SET` mask for text leaders
+- [x] Memo is fetched BEFORE modifying the element (best practice, avoids content loss)
+- [x] Removed the duplicate `GetMemo` call after building the mask
+
+### ⏳ Awaiting manual test in Archicad
+
+- [ ] **Manual test**: undo/redo round-trips, locked elements unchanged
+
+⚠️ See the **Bug Fix Gate** at the top of this file — any bug found here blocks all further development until fixed and re-verified.
 
 ---
 
-## 📋 План действий после ручного тестирования
+## 📋 Action Plan After Manual Testing
 
-### A. Если тест PASSED (undo/redo работает, locked не тронуты)
+### A. If test PASSED (undo/redo works, locked elements untouched)
 
 1. **WIP commit**: `git add -A && git commit -m "Phase 6 DoD: manual test passed"`
-2. **Phase 7 переход**:
-   - Очистить статус в IDEA.md: "Phase 6 COMPLETE"
-   - Начать Phase 7: Add Dimensions (если не доделаны полностью)
-   - Проверить, что DimensionElement полностью интегрирован в конвейер
+2. **Move to Phase 7**:
+   - Clear the status in IDEA.md to "Phase 6 COMPLETE"
+   - Start Phase 7: Add Dimensions (if not fully done yet)
+   - Verify `DimensionElement` is fully integrated into the pipeline
+3. **Phase 8 prep** (DFS Clustering):
+   - Read AGENTS.md §13 "Implementation Order"
+   - Add a DFS clustering draft to IDEA.md:
+     - Clustering criterion: graph edges between elements with overlapping text boxes
+     - Neighborhood definition: 50mm radius around the element
+     - Local search: 2-opt optimization within a cluster
+   - **This is a draft only** — per Section D below and AGENTS.md §13 Phase 8, it must be promoted into AGENTS.md itself (with the same precision as AGENTS.md §8) before Phase 8 implementation starts. It cannot stay just a note in this file.
 
-3. **Phase 8 подготовка** (DFS Clustering):
-   - Прочитать AGENTS.md §13 "Implementation Order"
-   - Добавить в IDEA.md план DFS clustering:
-     - Clustering criterion: графовые связи между элементами с пересекающимися textBox
-     - Neighborhood definition: радиус 50mm вокруг элемента
-     - Local search: 2-opt оптимизация внутри кластера
+### B. If Test FAILED — Common Scenarios and Fixes
 
-### B. Если тест FAILED — типичные сценарии и исправления
+**Per the Bug Fix Gate at the top of this file: stop here. Do not touch Phase 7/8 work until every bug found is fixed and re-tested clean.**
 
-#### B1. "Locked elements moved" — баг в `IsElementLocked()`
+#### B1. "Locked elements moved" — bug in `IsElementLocked()`
+
 ```cpp
-// Проверить: правильно ли определяется lock
-// ИСПРАВЛЕНИЕ: добавить debug-лог в ApplyChanges
+// CHECK: is the lock detected correctly?
+// FIX: add a debug log in ApplyChanges
 //   - std::cout << "Skipping locked element " << guid << std::endl;
-//   - Убедиться, что locked=true передаётся из CollectElements
+//   - Make sure locked=true is actually passed through from CollectElements
 ```
 
-#### B2. "Undo not working" — проблема в `ACAPI_CallUndoableCommand`
+#### B2. "Undo not working" — issue in `ACAPI_CallUndoableCommand`
+
 ```cpp
-// Возможные причины:
-// 1. ACAPI_CallUndoableCommand НЕ вызывается (проверить return statement)
-// 2. Ошибки ACAPI_Element_Change не обрабатываются → undo не активируется
-// ИСПРАВЛЕНИЕ: добавить обработку ошибок
-//   if (err != NoError) { 
+// Possible causes:
+// 1. ACAPI_CallUndoableCommand is NOT actually called (check the return statement)
+// 2. ACAPI_Element_Change errors aren't handled -> undo never activates
+// FIX: add error handling
+//   if (err != NoError) {
 //       std::cerr << "Element change failed: " << err << std::endl;
 //       return err; // Early exit prevents partial undo
 //   }
 ```
 
-#### B3. "Graphic artifacts on leaders" — проблема с polyline
+#### B3. "Graphic artifacts on leaders" — polyline issue
+
 ```cpp
-// ПРОВЕРИТЬ:
-// - Leader имеет 2 точки (begC, endC), но в ApplyChanges пишем 3
-// - Возможно, midC должен вычисляться как средняя точка
-// ИСПРАВЛЕНИЕ: если polyline.size() == 2, midC = (begC + endC) / 2
+// CHECK:
+// - Leader has 2 points (begC, endC), but ApplyChanges writes 3
+// - midC is probably supposed to be the midpoint
+// FIX: if polyline.size() == 2, midC = (begC + endC) / 2
 ```
 
-#### B4. "Crash on ApplyChanges" — утечка/нулевой указатель
+#### B4. "Crash on ApplyChanges" — leak / null pointer
+
 ```cpp
-// ПРОВЕРИТЬ:
-// - ACAPI_Element_GetMemo вызывается перед Change?
-// - BNZero вызывается для всех структур перед использованием?
-// ИСПРАВЛЕНИЕ: добавить макрос SAFE_GET(elem, guid) с проверкой err
+// CHECK:
+// - Is ACAPI_Element_GetMemo called before Change?
+// - Is BNZero called on every struct before use?
+// FIX: add a SAFE_GET(elem, guid) macro with error checking
 ```
 
-#### B5. "ACAPI_Element_Change error -2130313112" — memo required для dimensions/labels
+#### B5. "ACAPI_Element_Change error -2130313112" — memo required for dimensions/labels
+
 ```cpp
-// ПРОВЕРИТЬ:
-// - ACAPI_Element_Change вызывается с APIMemoMask_All вместо 0 ✓ (ИСПРАВЛЕНО)
-// - ACAPI_Element_GetMemo вызывается ПЕРЕД ACAPI_Element_Change ✓ (ИСПРАВЛЕНО)
-// - memo.paragraphs проверяется на nullptr ✓ (ИСПРАВЛЕНО)
+// CHECK:
+// - ACAPI_Element_Change is called with APIMemoMask_All instead of 0 ✓ (FIXED)
+// - ACAPI_Element_GetMemo is called BEFORE ACAPI_Element_Change ✓ (FIXED)
+// - memo.paragraphs is checked for nullptr ✓ (FIXED)
 ```
 
-### C. План Phase 7 (Dimensions complete)
+### C. Phase 7 Plan (Dimensions complete)
+
 1. **Verify Dimension implementation**:
-   - [x] `DimensionElement.geo.direction` вычисляется правильно в CollectElements
-   - [x] `GenerateForDimension` принимает `direction` параметр
-   - [x] `ApplyChanges` обновляет `dimension.defNote.pos` правильно
+   - [x] `DimensionElement.geo.direction` is computed correctly in CollectElements
+   - [x] `GenerateForDimension` accepts a `direction` parameter
+   - [x] `ApplyChanges` updates `dimension.defNote.pos` correctly
+2. **Extend CandidateGenerator**:
+   - [x] Perpendicular offset via `perpDir = {-direction.y, direction.x}`
+   - [x] 5 extra candidates sliding along the line
+3. **Testing**:
+   - [ ] Unit test: create a `DimensionElement` with a known direction
 
-2. **Дополнить CandidateGenerator**:
-   - [x] Perpendicular offset через `perpDir = {-direction.y, direction.x}`
-   - [x] 5 дополнительных кандидатов со скольжением вдоль линии
+### D. Phase 8 Plan (DFS Clustering) — DO NOT START without a spec
 
-3. **Тестирование**:
-   - [ ] Unit test: создать DimensionElement с известным direction
+**REQUIRED: extend AGENTS.md with clustering criteria first.**
 
-### D. План Phase 8 (DFS Clustering) — НЕ ЗАПУСКАТЬ без спецификации
+Before starting Phase 8:
 
-**ТРЕБУЕТСЯ: расширение AGENTS.md с критериями clustering**
-
-Перед началом Phase 8:
-1. Добавить в AGENTS.md секцию про clustering criterion (как формируется граф)
-2. Добавить Neighborhood definition (что считается соседом)
-3. Добавить precision требования для SegmentsIntersect
-4. Только ПОСЛЕ этого начинать реализацию
+1. Add a clustering-criterion section to AGENTS.md (how the graph is built).
+2. Add a neighborhood definition (what counts as a neighbor).
+3. Add precision requirements for `SegmentsIntersect` in this context.
+4. Only start implementation AFTER that.
 
 ---
 
 ## 🚨 STOP Conditions (AGENTS.md §16)
 
-Перед ЛЮБЫМ изменением кода:
+Before ANY code change:
+
 ```bash
-# Автоматические проверки (обязательно проходить)
+# Automated checks (must pass)
 grep -rn "ACAPI_" Sources/AddOn/LayoutOptimizer.hpp Sources/AddOn/CandidateGenerator.* Sources/AddOn/GreedySolver.*
-grep -rn "unordered_map|unordered_set" Sources/AddOn/LayoutOptimizer/ Sources/AddOn/CandidateGenerator.* Sources/AddOn/GreedySolver.*
+grep -rn "unordered_map\|unordered_set" Sources/AddOn/LayoutOptimizer.hpp Sources/AddOn/CandidateGenerator.* Sources/AddOn/GreedySolver.*
 ```
 
-**Если обнаружено нарушение → СТОП, создать issue, не патчить!**
+> Fixed two bugs from the previous version of this checklist: (1) the `unordered_map|unordered_set` pattern had an unescaped `|` — plain (BRE) `grep` treats that as a literal pipe character, not alternation, so the check would silently pass no matter what the files contained; corrected to `unordered_map\|unordered_set`. (2) it grepped a `Sources/AddOn/LayoutOptimizer/` directory that doesn't exist given the flat structure documented above — corrected to the actual file `LayoutOptimizer.hpp`.
+
+**If a violation is found → STOP, open an issue, do not patch it silently!**
 
 ---
 
-## 🔧 Refactoring Tasks (Per User Instructions) - ВЫПОЛНЕНО
+## 🔧 Refactoring Tasks (Per User Instructions) — DONE
 
-1. **[x] ЗАДАЧА 1**: Удалить legacy-монолит `LayoutOptimizer.cpp` — 441 строк удалено
-2. **[x] ЗАДАЧА 2**: Восстановить конвейер в `ArchicadAdapter.cpp::SolveAndApply()`
-   - Удалить создание кандидата-заглушки ✓
-   - Внедрить `LayoutOptimizer::CandidateGenerator::GenerateForLeader` и `GenerateForDimension` ✓
-   - Обеспечить сбор `forbiddenGeometry` и `obstaclePolylines` ✓
-3. **[x] ЗАДАЧА 3**: Исправить логику генератора
-   - Dimensions: перпендикулярное смещение + 5 кандидатов скольжения ✓
-   - Leaders: использовать `le.geo.shoulderLength` вместо `distanceMm * 0.5` ✓
-4. **[x] ЗАДАЧА 4**: Безопасная работа с ACAPI
-   - Text box: `para.width/height` вместо `strlen` ✓
+1. **[x] TASK 1**: Remove the legacy monolith `LayoutOptimizer.cpp` — 441 lines removed
+2. **[x] TASK 2**: Restore the pipeline in `ArchicadAdapter.cpp::SolveAndApply()`
+   - Remove the stub-candidate creation ✓
+   - Wire in `LayoutOptimizer::CandidateGenerator::GenerateForLeader` and `GenerateForDimension` ✓
+   - Make sure `forbiddenGeometry` and `obstaclePolylines` are actually collected ✓
+3. **[x] TASK 3**: Fix generator logic
+   - Dimensions: perpendicular offset + 5 sliding candidates ✓
+   - Leaders: use `le.geo.shoulderLength` instead of `distanceMm * 0.5` ✓
+4. **[x] TASK 4**: Safe ACAPI usage
+   - Text box: `para.width/height` instead of `strlen` ✓
    - Lock detection: `floorInd & 0x8000` + `layer.head.flags & 1` ✓
-   - 3 точки `begC/midC/endC` для структурной целостности ✓
+   - 3 points `begC/midC/endC` for structural integrity ✓
 
 ---
 
-## Команды
+## Commands
+
 ```bash
-# Сборка
+# Build
 python Tools/BuildAddOn.py -c config.json -v 25
 
-# Верификация AGENTS.md checklist
-bash C:\Users\da-rogojin\AppData\Local\Temp\hermes-verify-build-archicad-adapter.sh
+# Verify the AGENTS.md checklist
+# TODO: the previous version of this command pointed at a machine-specific
+# user Temp path (C:\Users\da-rogojin\AppData\Local\Temp\...), which won't
+# exist on another machine or in another agent session. Move the actual
+# script into the repo instead, e.g. Tools/verify_checklist.sh, and call it
+# from there so it's reproducible for anyone working on this project.
 
 # Git
 git status
 git add Sources/AddOn/ArchicadAdapter.cpp
-git commit -m "описание исправления"
+git commit -m "fix description"
 ```
