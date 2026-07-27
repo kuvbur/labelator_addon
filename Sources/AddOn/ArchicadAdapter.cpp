@@ -95,21 +95,37 @@ namespace ArchicadAdapter {
         if (err != NoError)
             return box;
 
-        double textWidthMm = 50.0;  // fallback
-        double textHeightMm = 3.0;  // fallback
+        double textWidthMm = 50.0;  // fallback — будет уточнён ниже
+        double textHeightMm = 3.0;  // fallback — будет уточнён ниже
 
         // Извлекаем точный bounding box текста из paragraphs
         if (memo.paragraphs != nullptr && memo.paragraphs[0] != nullptr) {
             const API_ParagraphType& para = memo.paragraphs[0][0];
+            // para.height — высота шрифта в модели (модельные единицы)
             double fontSizeMm = para.height > 0.0 ? para.height * 1000.0 / viewScaleDenom : 2.5;
             double charWidthMm = fontSizeMm * 0.6;
 
-            if (memo.textContent != nullptr && memo.textContent[0] != nullptr) {
-                // Используем точную ширину текста из paragraph runs, если доступно
-                // API_ParagraphType содержит width, height
-                textWidthMm = para.width > 0.0 ? para.width * 1000.0 / viewScaleDenom : strlen (memo.textContent[0]) * charWidthMm;
-                textHeightMm = fontSizeMm * 1.2;
+            // Ширина текста: из para.width, или из текста (если доступен), или оценка по числу символов
+            if (para.width > 0.0) {
+                // para.width задан явно (модельные единицы)
+                textWidthMm = para.width * 1000.0 / viewScaleDenom;
+            } else if (memo.textContent != nullptr && memo.textContent[0] != nullptr) {
+                // Текст доступен — считаем по числу символов
+                textWidthMm = strlen (memo.textContent[0]) * charWidthMm;
+            } else {
+                // Нет ни para.width, ни текста — оценка: 8 символов * ширина символа
+                textWidthMm = 8.0 * charWidthMm;
             }
+            textHeightMm = fontSizeMm * 1.2;
+        } else if (elem.header.typeID == API_LabelID) {
+            // Для custom label классов (labelClass != APILblClass_Text)
+            // memo.paragraphs может быть null, используем textSize из элемента
+            // textSize в модели — мм, но в Archicad API это может быть в pt
+            double fontSizeMm = elem.label.textSize > 0.0 ? elem.label.textSize / viewScaleDenom : 2.5;
+            double charWidthMm = fontSizeMm * 0.6;
+            // Оценка: 8 символов * ширина символа для коротких выносок
+            textWidthMm = 8.0 * charWidthMm;
+            textHeightMm = fontSizeMm * 1.2;
         }
 
         // Позиция текста: refC для размеров, u.text.loc для выносок

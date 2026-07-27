@@ -55,6 +55,11 @@ GSErrCode ExportLabelsGeometryToCSV (const char* filename) {
             const API_ParagraphType& para = memo.paragraphs[0][0];
             textWidth = para.width;
             textHeight = para.height;
+        } else if (elem.header.typeID == API_LabelID) {
+            // Для custom label классов: оценка размера из textSize элемента
+            double fontSizeMm = elem.label.textSize > 0.0 ? elem.label.textSize : 2.5;
+            textHeight = fontSizeMm * 1.2;
+            textWidth = 8.0 * fontSizeMm * 0.6;  // 8 символов * ширина символа
         }
         if (memo.textContent != nullptr && memo.textContent[0] != nullptr) {
             textContent = memo.textContent[0];
@@ -121,6 +126,11 @@ GSErrCode ExportDimensionsGeometryToCSV (const char* filename) {
             const API_ParagraphType& para = memo.paragraphs[0][0];
             textWidth = para.width;
             textHeight = para.height;
+        } else if (elem.header.typeID == API_LabelID) {
+            // Для custom label классов: оценка размера из textSize элемента
+            double fontSizeMm = elem.label.textSize > 0.0 ? elem.label.textSize : 2.5;
+            textHeight = fontSizeMm * 1.2;
+            textWidth = 8.0 * fontSizeMm * 0.6;  // 8 символов * ширина символа
         }
         if (memo.textContent != nullptr && memo.textContent[0] != nullptr) {
             textContent = memo.textContent[0];
