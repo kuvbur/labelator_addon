@@ -170,7 +170,44 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
     SolveResult result;
     result.log.elementCount = elements.size();
     
-    // Build placement priority order
+    // Layout Stability epsilon для текстовых коллизий (mm)
+    // Текстовые рамки могут незначительно перекрываться (≤1.0mm) из-за
+    // неточности определения fontHeight — это не считается конфликтом
+    // для целей Layout Stability. Полный collision resolution использует eps=1e-4.
+    // Для проверки сужаем боксы на kLayoutStabilityEps/2 с каждой стороны.
+    constexpr double kLayoutStabilityEps = 1.0;
+    auto ShrinkRect = [] (const Rect& r, double s) -> Rect {
+        return { r.left + s, r.top + s, r.right - s, r.bottom - s };
+    };
+    
+    // -----------------------------------------------------------------------------
+    // Layout Stability classification: OK_LABEL (stable) vs BAD_LABEL (needs solving)
+    // -----------------------------------------------------------------------------
+    // OK_LABEL: элемент, чей fallback text box (shrunk) НЕ пересекается
+    // ни с каким другим элементом. Такие элементы заморозываются на fallback.
+    // BAD_LABEL: элемент с хотя бы одним пересечением — идет в greedy solver.
+    std::vector<bool> isOKLabel (elements.size(), false);
+    for (size_t i = 0; i < elements.size(); ++i) {
+        if (elements[i].locked) {
+            isOKLabel[i] = true; // Locked элементы заморожены
+            continue;
+        }
+        const Candidate& fallback = elements[i].candidates.back();
+        const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
+        bool hasConflict = false;
+        for (size_t j = 0; j < elements.size() && !hasConflict; ++j) {
+            if (i == j) continue;
+            if (elements[j].locked) continue;
+            const Candidate& otherFallback = elements[j].candidates.back();
+            const Rect ofbBox = ShrinkRect (otherFallback.textBox, kLayoutStabilityEps * 0.5);
+            if (fbBox.Intersects (ofbBox)) {
+                hasConflict = true;
+            }
+        }
+        isOKLabel[i] = !hasConflict;
+    }
+    
+    // Build placement priority order (only for BAD_LABEL elements)
     struct PrioritizedElement {
         PlacementPriority priority;
         size_t originalIndex;
@@ -183,28 +220,28 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
         const auto& el = elements[i];
         
         // Count invalid candidates
-                int invalidCount = 0;
-                for (const auto& c : el.candidates) {
-                    if (!c.valid) ++invalidCount;
-                }
-
-                // Count locked neighbors that could potentially overlap (bbox overlap check)
-                int lockedNeighbors = 0;
-                for (const auto& other : elements) {
-                    if (other.locked && other.id != el.id) {
-                        // Check if element's initial text box could overlap with locked element's layout
-                        // Use candidate text boxes for overlap detection
-                        for (const auto& cand : el.candidates) {
-                            for (const auto& otherCand : other.candidates) {
-                                if (cand.textBox.Intersects(otherCand.textBox)) {
-                                    lockedNeighbors++;
-                                    break;
-                                }
-                            }
-                            if (lockedNeighbors > 0) break; // Count each locked neighbor at most once per element
+        int invalidCount = 0;
+        for (const auto& c : el.candidates) {
+            if (!c.valid) ++invalidCount;
+        }
+        
+        // Count locked neighbors that could potentially overlap (bbox overlap check)
+        int lockedNeighbors = 0;
+        for (const auto& other : elements) {
+            if (other.locked && other.id != el.id) {
+                // Check if element's initial text box could overlap with locked element's layout
+                // Use candidate text boxes for overlap detection
+                for (const auto& cand : el.candidates) {
+                    for (const auto& otherCand : other.candidates) {
+                        if (cand.textBox.Intersects(otherCand.textBox)) {
+                            lockedNeighbors++;
+                            break;
                         }
                     }
+                    if (lockedNeighbors > 0) break; // Count each locked neighbor at most once per element
                 }
+            }
+        }
         
         PlacementPriority pri;
         pri.typeRank = (el.type == ElementType::Dimension) ? 0 : 1;
@@ -221,143 +258,90 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
                   return a.priority < b.priority;
               });
     
-    // Greedy placement: for each element in priority order, pick best valid candidate
-        std::vector<Candidate> placedCandidates;
-        placedCandidates.reserve(elements.size());
-        result.selectedCandidates.resize(elements.size());
-
-        // Layout Stability epsilon для текстовых коллизий (mm)
-        // Текстовые рамки могут незначительно перекрываться (≤1.0mm) из-за
-        // неточности определения fontHeight — это не считается конфликтом
-        // для целей Layout Stability. Полный collision resolution использует eps=1e-4.
-        // Для проверки сужаем боксы на kLayoutStabilityEps/2 с каждой стороны.
-        constexpr double kLayoutStabilityEps = 1.0;
-        auto ShrinkRect = [] (const Rect& r, double s) -> Rect {
-            return { r.left + s, r.top + s, r.right - s, r.bottom - s };
-        };
-
-        // --- Layout Stability pre-check (Phase 6.5) ---
-        // Если ВСЕ fallback-позиции (последний кандидат каждого элемента) не имеют
-        // значимых пересечений друг с другом (текст, геометрия, линии), используем их без изменений.
-        // Это гарантирует Layout Stability: элементы без конфликтов не двигаются,
-        // даже если generated-кандидаты имеют меньший leaderLength/alignmentPenalty.
-        bool allFallbacksStable = true;
-        for (size_t i = 0; i < elements.size() && allFallbacksStable; ++i) {
-            const auto& el = elements[i];
-            if (el.locked) continue;
-            const Candidate& fallback = el.candidates.back();
-            for (size_t j = 0; j < i; ++j) {
-                const auto& other = elements[j];
-                if (other.locked) continue;
-                const Candidate& otherFallback = other.candidates.back();
-                // Создаём суженные копии боксов для проверки с Layout Stability epsilon
-                const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
-                const Rect ofbBox = ShrinkRect (otherFallback.textBox, kLayoutStabilityEps * 0.5);
-                if (fbBox.Intersects (ofbBox) ||
-                    CountGeometryCollisions(fallback, forbiddenGeometry) > 0 ||
-                    CountLineCollisions(fallback, {otherFallback}, obstaclePolylines) > 0) {
-                    allFallbacksStable = false;
-                    break;
-                }
+    // Pre-place OK_LABEL elements at their fallback positions (frozen)
+    std::vector<Candidate> placedCandidates;
+    placedCandidates.reserve(elements.size());
+    result.selectedCandidates.resize(elements.size());
+    
+    for (size_t i = 0; i < elements.size(); ++i) {
+        if (isOKLabel[i] || elements[i].locked) {
+            const Candidate& fallback = elements[i].candidates.back();
+            result.selectedCandidates[i] = fallback;
+            placedCandidates.push_back(fallback);
+        }
+    }
+    
+    // If ALL elements are OK_LABEL or locked, we're done
+    bool allFrozen = true;
+    for (size_t i = 0; i < elements.size(); ++i) {
+        if (!isOKLabel[i] && !elements[i].locked) {
+            allFrozen = false;
+            break;
+        }
+    }
+    if (allFrozen) {
+        result.zeroCollisionSolution = true;
+        result.log.finalConflictCount = 0;
+        result.log.totalCandidatesGenerated = 0;
+        for (const auto& el : elements) {
+            result.log.totalCandidatesGenerated += el.candidates.size();
+        }
+        return result;
+    }
+    
+    // -----------------------------------------------------------------------------
+    // Greedy Solve for BAD_LABEL elements only
+    // -----------------------------------------------------------------------------
+    // Process elements in priority order, skipping OK_LABEL/locked
+    for (const auto& pe : prioritized) {
+        const auto& element = elements[pe.originalIndex];
+        
+        // Skip OK_LABEL and locked elements (already placed)
+        if (isOKLabel[pe.originalIndex] || element.locked) {
+            continue;
+        }
+        
+        // Find best candidate by LayoutCost (unified logic for valid + fallback)
+        const Candidate* bestCand = nullptr;
+        LayoutCost bestCost;
+        bool hasBest = false;
+        
+        for (const auto& cand : element.candidates) {
+            LayoutCost cost = EvaluateCandidate(cand, element, placedCandidates, forbiddenGeometry, obstaclePolylines);
+            
+            if (!hasBest || cost < bestCost) {
+                bestCost = cost;
+                bestCand = &cand;
+                hasBest = true;
             }
         }
-
-        if (allFallbacksStable && elements.size() > 0) {
-            // Все элементы стабильны — используем fallback-позиции
-            for (const auto& pe : prioritized) {
-                const auto& element = elements[pe.originalIndex];
-                const Candidate& fallback = element.candidates.back();
-                result.selectedCandidates[pe.originalIndex] = fallback;
-                result.zeroCollisionSolution = true;
-            }
-            result.log.finalConflictCount = 0;
-            result.log.totalCandidatesGenerated = 0;
-            for (const auto& el : elements) {
-                result.log.totalCandidatesGenerated += el.candidates.size();
-            }
-            return result;
+        
+        // Safety: if no candidates at all (shouldn't happen per AGENTS.md Section 7),
+        // create a minimal fallback candidate at initial position
+        if (!bestCand) {
+            Candidate fallback;
+            fallback.textPosition = element.initialTextPosition;
+            fallback.textBox = {element.initialTextPosition.x - kFallbackBoxSizeMm, element.initialTextPosition.y - kFallbackBoxSizeMm,
+                               element.initialTextPosition.x + kFallbackBoxSizeMm, element.initialTextPosition.y + kFallbackBoxSizeMm};
+            fallback.leaderPolyline = {element.initialTextPosition, element.initialTextPosition};
+            fallback.valid = true;
+            result.zeroCollisionSolution = false;
+            result.selectedCandidates[pe.originalIndex] = fallback;
+            placedCandidates.push_back(fallback);
+            continue;
         }
-
-        // Debug: log why stability check failed
-        // std::cerr << "[LayoutOptimizer] Layout stability check failed, running greedy solver\n";
-
-        bool allZeroCollision = true;
-            int totalConflicts = 0;
-
-        for (const auto& pe : prioritized) {
-            const auto& element = elements[pe.originalIndex];
-
-            // Locked elements: use their fallback candidate (LAST in list, index = candidates.size() - 1)
-            // Per AGENTS.md Section 7: fallback is added last and bypasses filters
-            if (element.locked) {
-                Candidate chosen = element.candidates.back();
-                result.selectedCandidates[pe.originalIndex] = chosen;
-                placedCandidates.push_back(chosen);
-                continue;
-            }
-
-            // Layout Stability check: если fallback не имеет значимых пересечений
-            // (с учётом kLayoutStabilityEps) с уже размещёнными, используем его без поиска.
-            const Candidate& fallback = element.candidates.back();
-            bool fallbackStable = true;
-            const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
-            for (const Candidate& placed : placedCandidates) {
-                const Rect plBox = ShrinkRect (placed.textBox, kLayoutStabilityEps * 0.5);
-                if (fbBox.Intersects (plBox)) {
-                    fallbackStable = false;
-                    break;
-                }
-            }
-            if (fallbackStable) {
-                result.selectedCandidates[pe.originalIndex] = fallback;
-                placedCandidates.push_back(fallback);
-                continue;
-            }
-
-            // Find best candidate by LayoutCost (unified logic for valid + fallback)
-            const Candidate* bestCand = nullptr;
-            LayoutCost bestCost;
-            bool hasBest = false;
-
-            for (const auto& cand : element.candidates) {
-                LayoutCost cost = EvaluateCandidate(cand, element, placedCandidates, forbiddenGeometry, obstaclePolylines);
-
-                if (!hasBest || cost < bestCost) {
-                    bestCost = cost;
-                    bestCand = &cand;
-                    hasBest = true;
-                }
-            }
-
-            // Safety: if no candidates at all (shouldn't happen per AGENTS.md Section 7),
-            // create a minimal fallback candidate at initial position
-            if (!bestCand) {
-                Candidate fallback;
-                fallback.textPosition = element.initialTextPosition;
-                fallback.textBox = {element.initialTextPosition.x - kFallbackBoxSizeMm, element.initialTextPosition.y - kFallbackBoxSizeMm,
-                                   element.initialTextPosition.x + kFallbackBoxSizeMm, element.initialTextPosition.y + kFallbackBoxSizeMm};
-                fallback.leaderPolyline = {element.initialTextPosition, element.initialTextPosition};
-                fallback.valid = true;
-                totalConflicts += 1;
-                result.zeroCollisionSolution = false;
-                result.selectedCandidates[pe.originalIndex] = fallback;
-                placedCandidates.push_back(fallback);
-                continue;
-            }
-
-            // Track if zero-collision solution and accumulate actual conflict count
-            if (bestCand && (bestCost.textCollision > 0 || bestCost.geometryCollision > 0 || bestCost.lineCollision > 0)) {
-                allZeroCollision = false;
-                totalConflicts += bestCost.textCollision + bestCost.geometryCollision + bestCost.lineCollision;
-            }
-
-            Candidate chosen = *bestCand;
-            result.selectedCandidates[pe.originalIndex] = chosen;
-            placedCandidates.push_back(chosen);
+        
+        // Track if zero-collision solution and accumulate actual conflict count
+        if (bestCost.textCollision > 0 || bestCost.geometryCollision > 0 || bestCost.lineCollision > 0) {
+            result.zeroCollisionSolution = false;
+            result.log.finalConflictCount += bestCost.textCollision + bestCost.geometryCollision + bestCost.lineCollision;
         }
-
-        result.log.finalConflictCount = totalConflicts;
-        result.zeroCollisionSolution = allZeroCollision;
+        
+        Candidate chosen = *bestCand;
+        result.selectedCandidates[pe.originalIndex] = chosen;
+        placedCandidates.push_back(chosen);
+    }
+    
     result.log.totalCandidatesGenerated = 0;
     for (const auto& el : elements) {
         result.log.totalCandidatesGenerated += el.candidates.size();
