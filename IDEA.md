@@ -27,64 +27,59 @@ Base directory: `D:/labelator_addon`
 
 ### Core LayoutOptimizer (pure C++17, NO ACAPI dependencies)
 
-| File                     | Full Path                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                                    | Phase          |
-| ------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| File                     | Full Path                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Phase          |
+| ------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | `LayoutOptimizer.hpp`    | `D:/labelator_addon/Sources/AddOn/LayoutOptimizer.hpp`    | Main header: Point2D, Rect, ElementType, Leader/Dimension Geometry/Layout/Element, Candidate, LayoutCost, PlacementPriority, ElementInput, SolveResult, constants kCandidateAnglesDeg/kCandidateDistancesMm, functions SegmentsIntersect/PolylinesIntersect/TextBoxIntersectsPolyline, declarations of Solve/CountTextCollisions/CountGeometryCollisions/CountLineCollisions/ComputeMovement/ComputeLeaderLength/ComputeAlignmentPenalty/EvaluateCandidate | 1, 5, 8, 9, 10 |
-| `CandidateGenerator.hpp` | `D:/labelator_addon/Sources/AddOn/CandidateGenerator.hpp` | Candidate generator interface                                                                                                                                                                                                                                                                                                                                                                             | 3, 4, 7        |
-| `CandidateGenerator.cpp` | `D:/labelator_addon/Sources/AddOn/CandidateGenerator.cpp` | Implementation: GenerateForLeader (radial), GenerateForDimension (radial + 5 perpendicular offsets), Filtering (view boundary, forbidden geometry, obstacle lines), MakeCandidateInternal                                                                                                                                                                                                                | 3, 4, 7        |
-| `GreedySolver.cpp`       | `D:/labelator_addon/Sources/AddOn/GreedySolver.cpp`       | Greedy Solver implementation: Solve(), EvaluateCandidate, CountTextCollisions, CountGeometryCollisions, CountLineCollisions, ComputeMovement, ComputeLeaderLength, ComputeAlignmentPenalty. PlacementPriority-based ordering.                                                                                                                                                                            | 5              |
+| `CandidateGenerator.hpp` | `D:/labelator_addon/Sources/AddOn/CandidateGenerator.hpp` | Candidate generator interface                                                                                                                                                                                                                                                                                                                                                                                                                              | 3, 4, 7        |
+| `CandidateGenerator.cpp` | `D:/labelator_addon/Sources/AddOn/CandidateGenerator.cpp` | Implementation: GenerateForLeader (radial), GenerateForDimension (radial + 5 perpendicular offsets), Filtering (view boundary, forbidden geometry, obstacle lines), MakeCandidateInternal                                                                                                                                                                                                                                                                  | 3, 4, 7        |
+| `GreedySolver.cpp`       | `D:/labelator_addon/Sources/AddOn/GreedySolver.cpp`       | Greedy Solver implementation: Solve(), EvaluateCandidate, CountTextCollisions, CountGeometryCollisions, CountLineCollisions, ComputeMovement, ComputeLeaderLength, ComputeAlignmentPenalty. PlacementPriority-based ordering.                                                                                                                                                                                                                              | 5              |
 
 ### ArchicadAdapter (ACAPI allowed — ONLY place with Archicad SDK includes)
 
-| File                  | Full Path                                              | Purpose                                                                                                                                                                                                                                                                                | Phase |
-| --------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
-| `ArchicadAdapter.hpp` | `D:/labelator_addon/Sources/AddOn/ArchicadAdapter.hpp` | Interface: CollectResult, CollectElements(), ModelToPaperSpace(), GetTextBoxPaperSpace(), GetLeaderPolylinePaperSpace(), GetDimensionMeasurePoints(), GetActiveViewScaleDenominator(), IsElementLocked(), GetElementId(), RunOptimization()                                            | 2     |
+| File                  | Full Path                                              | Purpose                                                                                                                                                                                                                                                                                     | Phase |
+| --------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `ArchicadAdapter.hpp` | `D:/labelator_addon/Sources/AddOn/ArchicadAdapter.hpp` | Interface: CollectResult, CollectElements(), ModelToPaperSpace(), GetTextBoxPaperSpace(), GetLeaderPolylinePaperSpace(), GetDimensionMeasurePoints(), GetActiveViewScaleDenominator(), IsElementLocked(), GetElementId(), RunOptimization()                                                 | 2     |
 | `ArchicadAdapter.cpp` | `D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp` | Implementation: CollectElements → Labels + Dimensions, Model→Paper Space, GetTextBoxPaperSpace (memo.paragraphs), Lock detection (floorInd & 0x8000 + layer.head.flags & 1), ApplyChanges (GetMemo BEFORE Change, mask u.text.loc + u.text.angle, 3 points begC/midC/endC), SolveAndApply() | 2, 6  |
 
 ### Debug Export
 
-| File              | Full Path                                          | Purpose                                                                                                                                                                                                       |
-| ----------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File              | Full Path                                          | Purpose                                                                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DebugExport.hpp` | `D:/labelator_addon/Sources/AddOn/DebugExport.hpp` | CSV export: ExportLabelsGeometryToCSV, ExportDimensionsGeometryToCSV, ExportObstaclesToCSV, RunFullDebugExport. All fields: begC/midC/endC, u.text.loc/angle, anchorPoint, leaderShape, labelClass, text box, text content. |
 
 #### Debug Data Fixtures (read-only — for manual/regression testing)
 
-Base folder: `D:\labelator_addon\debug_data_dontt_edit` — CSV files with previously-read geometry, exported via `DebugExport`. The folder name marks it read-only intentionally: never overwrite, regenerate, or "clean up" its contents without explicit instruction.
-
-| Subfolder    | Case                                              | Expected optimizer behavior                                                                                                                                                    |
-| ------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bad_before` | Leaders overlap / collide                         | Solver must resolve the conflicts — this is the practical stand-in for the dense-conflict golden-file scenario in AGENTS.md §12 (scenario 2).                                    |
-| `good_before` | Leaders already correctly placed, no conflicts    | Optimizer must leave positions untouched — this is the live regression fixture for AGENTS.md §2 Rule 4 (Layout Stability) and §12's no-conflict golden-file baseline (scenario 1). Do not "fix" anything here; if the optimizer moves anything in this set, that's a Layout Stability bug. |
+Base folder: `D:\labelator_addon\debug_*` — CSV files with previously-read geometry, exported via `DebugExport`. Never overwrite, regenerate, or "clean up" its contents without explicit instruction.
 
 ### Auxiliary
 
 | File                 | Full Path                                             | Purpose                                                                                                                          |
-| -------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Dimension_Main.hpp` | `D:/labelator_addon/Sources/AddOn/Dimension_Main.hpp` | Entry-point header                                                                                                             |
+| -------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `Dimension_Main.hpp` | `D:/labelator_addon/Sources/AddOn/Dimension_Main.hpp` | Entry-point header                                                                                                               |
 | `Dimension_Main.cpp` | `D:/labelator_addon/Sources/AddOn/Dimension_Main.cpp` | AddOn entry point (RegisterInterface, Initialize, FreeData, Do_OptimizeAnnotations) — calls `ArchicadAdapter::RunOptimization()` |
-| `TestFunc.hpp`       | `D:/labelator_addon/Sources/AddOn/TestFunc.hpp`       | Test functions (header)                                                                                                        |
-| `TestFunc.cpp`       | `D:/labelator_addon/Sources/AddOn/TestFunc.cpp`       | Test functions (implementation)                                                                                               |
-| `APICommon25.h`      | `D:/labelator_addon/Sources/AddOn/APICommon25.h`      | ACAPI utilities (header)                                                                                                       |
-| `APICommon25.c`      | `D:/labelator_addon/Sources/AddOn/APICommon25.c`      | ACAPI utilities (implementation)                                                                                              |
-| `APIEnvir.h`         | `D:/labelator_addon/Sources/AddOn/APIEnvir.h`         | API environment                                                                                                                |
-| `ResourceIds.hpp`    | `D:/labelator_addon/Sources/AddOn/ResourceIds.hpp`    | Resource IDs                                                                                                                   |
+| `TestFunc.hpp`       | `D:/labelator_addon/Sources/AddOn/TestFunc.hpp`       | Test functions (header)                                                                                                          |
+| `TestFunc.cpp`       | `D:/labelator_addon/Sources/AddOn/TestFunc.cpp`       | Test functions (implementation)                                                                                                  |
+| `APICommon25.h`      | `D:/labelator_addon/Sources/AddOn/APICommon25.h`      | ACAPI utilities (header)                                                                                                         |
+| `APICommon25.c`      | `D:/labelator_addon/Sources/AddOn/APICommon25.c`      | ACAPI utilities (implementation)                                                                                                 |
+| `APIEnvir.h`         | `D:/labelator_addon/Sources/AddOn/APIEnvir.h`         | API environment                                                                                                                  |
+| `ResourceIds.hpp`    | `D:/labelator_addon/Sources/AddOn/ResourceIds.hpp`    | Resource IDs                                                                                                                     |
 
 ### Build & Config
 
-| File             | Full Path                              | Purpose                                                                                          |
-| ---------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| File             | Full Path                                | Purpose                                                                                         |
+| ---------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `BuildAddOn.py`  | `D:/labelator_addon/Tools/BuildAddOn.py` | Build script: `python Tools/BuildAddOn.py -c config.json -v 25 [--release] [--package] [--lsp]` |
-| `config.json`    | `D:/labelator_addon/config.json`         | Build config (languages, versions)                                                                |
-| `CMakeLists.txt` | `D:/labelator_addon/CMakeLists.txt`      | CMake configuration                                                                                |
-| `AGENTS.md`      | `D:/labelator_addon/AGENTS.md`           | Project rules (required reading)                                                                   |
-| `IDEA.md`        | `D:/labelator_addon/IDEA.md`             | This file (execution plan)                                                                         |
+| `config.json`    | `D:/labelator_addon/config.json`         | Build config (languages, versions)                                                              |
+| `CMakeLists.txt` | `D:/labelator_addon/CMakeLists.txt`      | CMake configuration                                                                             |
+| `AGENTS.md`      | `D:/labelator_addon/AGENTS.md`           | Project rules (required reading)                                                                |
+| `IDEA.md`        | `D:/labelator_addon/IDEA.md`             | This file (execution plan)                                                                      |
 
 ### Build Artifacts (in `.gitignore`)
 
-| Path                         | Purpose                                              |
-| ---------------------------- | ------------------------------------------------------- |
+| Path                         | Purpose                                               |
+| ---------------------------- | ----------------------------------------------------- |
 | `D:/labelator_addon/Build/`  | Build artifacts (DevKit, LspCompileCommands, Package) |
-| `D:/labelator_addon/.cache/` | Cache                                                  |
+| `D:/labelator_addon/.cache/` | Cache                                                 |
 
 ### Key Functions — Direct Line References (file:line)
 
@@ -105,18 +100,6 @@ DebugExport::RunFullDebugExport     → D:/labelator_addon/Sources/AddOn/DebugEx
 Do_OptimizeAnnotations (entry)      → D:/labelator_addon/Sources/AddOn/Dimension_Main.cpp:15
 ```
 
-### Quick File-Open Commands
-
-```bash
-# Open in VS Code
-code D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp
-
-# Open in Notepad
-notepad D:/labelator_addon/Sources/AddOn/ArchicadAdapter.cpp
-
-# Open IDEA.md
-code D:/labelator_addon/IDEA.md
-```
 ## Phase 6 — ✅ COMPLETE (all fixes applied, ready for manual test)
 
 ### ✅ Code Ready
