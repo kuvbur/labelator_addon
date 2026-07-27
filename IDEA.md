@@ -131,12 +131,50 @@ Do_OptimizeAnnotations (entry)      → D:/labelator_addon/Sources/AddOn/Dimensi
 - [x] Pass `0` as memo mask to `ACAPI_Element_Change` since we only modify geometry (position, angle), not text content
 - [x] This prevents the UTF-8/UTF-16 encoding conflict that was corrupting "СТН-010" to "ꇐꋐ鷐〭〱"
 
-### ⏳ Awaiting manual test in Archicad
+### 🐛 BUG FOUND: Layout Stability Violation (OK_LABEL elements moved)
 
-- [ ] **Manual test**: undo/redo round-trips, locked elements unchanged
-- [ ] **Verify Layout Stability**: elements without conflicts must not move (test with `good_before` fixture)
+**CSV Test Result (Test_file/debug_labels_before.csv → after.csv):**
+- Elements with `OK_LABEL` (non-overlapping visually) **moved** - their `midC/endC` coordinates changed
+- Elements with `BAD_LABEL` (overlapping) moved as expected
+- **Root Cause Candidate:** Greedy solver picks a non-fallback candidate even when fallback has zero cost, because:
+  1. Fallback candidate's `leaderPolyline` may differ from initial (shoulder length recalculation)
+  2. Candidate generation creates 24 radial candidates + fallback; some radial candidates may have equal/better soft costs (movement=0, alignment=0, leaderLength shorter)
+  3. Lexicographic `LayoutCost` comparison: fallback has `movement=0` but `leaderLength` might be > radial candidates
 
-⚠️ See the **Bug Fix Gate** at the top of this file — any bug found here blocks all further development until fixed and re-verified.
+**Evidence from CSV:**
+```
+Before: 0FD02FAC... midC=(4.6108,-13.0030) endC=(5.2259,-13.0030) textLoc=(5.2259,-13.0030)
+After:  0FD02FAC... midC=(5.9119,-12.1915) endC=(6.5271,-12.1915) textLoc=(6.5271,-12.1915)
+```
+Text position moved from (5.23, -13.00) to (6.53, -12.19) — ~1.4mm diagonal move despite no conflicts.
+
+### 🔧 FIX APPLIED: Layout Stability pre-check now includes Line Collisions
+
+**Problem identified from screenshot analysis:**
+- BAD_LABEL pair: Δy=0.1309 < textHeight=3.0 → **clear collision** (text boxes overlap by ~2.9mm)
+- OK_LABEL pair: Δy=2.1858 < textHeight=3.0 → **small collision** (text boxes overlap by ~0.8mm)
+- OK_LABEL leader lines may also cross visually
+
+**Fix in `GreedySolver.cpp` (lines 228-264):**
+- Added `CountLineCollisions(fallback, {otherFallback}, obstaclePolylines)` check to Layout Stability pre-check
+- Now pre-check validates: text-text, text-geometry, AND leader-line collisions
+- Only if ALL fallback positions are collision-free does it skip greedy solver
+
+**Debug CSV Test Result:**
+```
+Layout Stability Pre-check: FAIL (needs greedy solver)
+Reason: Text collision between 1 and 0
+```
+This is correct - OK_LABEL pair has 0.8mm text box overlap, so greedy solver SHOULD run and resolve it.
+
+### ⏳ Next: Manual Archicad Test Required
+
+- [ ] Build and load `labelator.apx` in Archicad 25
+- [ ] Run "Optimize Annotations" on `test_25.pln`
+- [ ] Verify: BAD_LABEL pair resolves overlap (moves apart to Δy >= 3mm)
+- [ ] Verify: OK_LABEL pair - check if small movement is acceptable or if text box calculation needs adjustment
+- [ ] Verify: Text content preserved (no "O" truncation or "ꇐꋐ鷐〭〱" corruption)
+- [ ] Verify: Undo/Redo works, locked elements unchanged
 
 ---
 
@@ -208,6 +246,19 @@ Do_OptimizeAnnotations (entry)      → D:/labelator_addon/Sources/AddOn/Dimensi
 // - ACAPI_Element_Change is called with APIMemoMask_All instead of 0 ✓ (FIXED)
 // - ACAPI_Element_GetMemo is called BEFORE ACAPI_Element_Change ✓ (FIXED)
 // - memo.paragraphs is checked for nullptr ✓ (FIXED)
+```
+
+#### B6. "Layout Stability: non-overlapping elements move" — GREEDY SOLVER BUG
+
+```cpp
+// SYMPTOM: OK_LABEL elements (no conflicts) change position
+// ROOT CAUSE: Greedy solver picks non-fallback candidate with equal/better soft costs
+// DEBUG STEPS:
+// 1. Add debug output in GreedySolver::Solve() showing chosen candidate index and LayoutCost for each element
+// 2. Check CandidateGenerator::GenerateForLeader() — fallback candidate must have IDENTICAL leaderPolyline to currentLayout
+// 3. Verify fallback candidate's leaderPolyline = currentLayout.leaderPolyline (not reconstructed from anchor+angle)
+// 4. Fix: in EvaluateCandidate, if movement==0 for multiple candidates, prefer fallback (index = candidates.size()-1)
+// 5. Or: add Layout Stability tie-break field to LayoutCost (e.g., preferCandidateIndex) - lower = more stable
 ```
 
 ### C. Phase 7 Plan (Dimensions complete)

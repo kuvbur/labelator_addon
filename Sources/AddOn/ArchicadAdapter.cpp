@@ -308,10 +308,12 @@ namespace ArchicadAdapter {
                     continue;
 
                 // Get memo FIRST (before modifying element) - required for ACAPI_Element_Change
-                // Get ALL memo data to preserve text content; we pass mask=0 to Change since we only modify geometry
+                // Получаем ВСЮ memo-структуру (APIMemoMask_All), чтобы сохранить
+                // текстовое содержимое. Передаём mask=0 в Change, поскольку
+                // мы изменяем только геометрию (позицию, угол), а не текст.
                 API_ElementMemo memo = {};
                 BNZero (memo);
-                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo);
+                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
                 if (memoErr != NoError) {
                     // No memo available, cannot modify safely
                     continue;

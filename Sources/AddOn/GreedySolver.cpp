@@ -221,12 +221,54 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
               });
     
     // Greedy placement: for each element in priority order, pick best valid candidate
-    std::vector<Candidate> placedCandidates;
-    placedCandidates.reserve(elements.size());
-    result.selectedCandidates.resize(elements.size());
-    
-    bool allZeroCollision = true;
-        int totalConflicts = 0;
+        std::vector<Candidate> placedCandidates;
+        placedCandidates.reserve(elements.size());
+        result.selectedCandidates.resize(elements.size());
+
+        // --- Layout Stability pre-check (Phase 6.5) ---
+        // Если ВСЕ fallback-позиции (последний кандидат каждого элемента) не имеют
+        // пересечений друг с другом (текст, геометрия, линии), используем их без изменений.
+        // Это гарантирует Layout Stability: элементы без конфликтов не двигаются,
+        // даже если generated-кандидаты имеют меньший leaderLength/alignmentPenalty.
+        bool allFallbacksStable = true;
+        for (size_t i = 0; i < elements.size() && allFallbacksStable; ++i) {
+            const auto& el = elements[i];
+            if (el.locked) continue;
+            const Candidate& fallback = el.candidates.back();
+            for (size_t j = 0; j < i; ++j) {
+                const auto& other = elements[j];
+                if (other.locked) continue;
+                const Candidate& otherFallback = other.candidates.back();
+                if (CountTextCollisions(fallback, otherFallback) > 0 ||
+                    CountGeometryCollisions(fallback, forbiddenGeometry) > 0 ||
+                    CountLineCollisions(fallback, {otherFallback}, obstaclePolylines) > 0) {
+                    allFallbacksStable = false;
+                    break;
+                }
+            }
+        }
+
+        if (allFallbacksStable && elements.size() > 0) {
+            // Все элементы стабильны — используем fallback-позиции
+            for (const auto& pe : prioritized) {
+                const auto& element = elements[pe.originalIndex];
+                const Candidate& fallback = element.candidates.back();
+                result.selectedCandidates[pe.originalIndex] = fallback;
+                result.zeroCollisionSolution = true;
+            }
+            result.log.finalConflictCount = 0;
+            result.log.totalCandidatesGenerated = 0;
+            for (const auto& el : elements) {
+                result.log.totalCandidatesGenerated += el.candidates.size();
+            }
+            return result;
+        }
+
+        // Debug: log why stability check failed
+        // std::cerr << "[LayoutOptimizer] Layout stability check failed, running greedy solver\n";
+
+        bool allZeroCollision = true;
+            int totalConflicts = 0;
 
         for (const auto& pe : prioritized) {
             const auto& element = elements[pe.originalIndex];
