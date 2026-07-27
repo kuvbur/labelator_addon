@@ -137,19 +137,20 @@ class VerifElement:
 # 3. Collision Detection (Section 8) — CountTextCollisions / CountLineCollisions
 # =============================================================================
 
-def count_text_collisions(a: Candidate, b: Candidate) -> int:
+def count_text_collisions(a: Candidate, b: Candidate, eps=EPS) -> int:
     """Section 9 — hard cost 1"""
     if not a.valid or not b.valid:
         return 0
-    return 1 if a.text_box.intersects(b.text_box) else 0
+    return 1 if a.text_box.intersects(b.text_box, eps) else 0
 
 
 def count_geometry_collisions(cand: Candidate,
-                               forbidden: List[Rect]) -> int:
+                               forbidden: List[Rect],
+                               eps=EPS) -> int:
     """Section 9 — hard cost 2"""
     if not cand.valid:
         return 0
-    return sum(1 for fb in forbidden if cand.text_box.intersects(fb))
+    return sum(1 for fb in forbidden if cand.text_box.intersects(fb, eps))
 
 
 def count_line_collisions(cand: Candidate,
@@ -327,7 +328,9 @@ def layout_stability_precheck(elements: List[VerifElement],
                 continue
 
             # Text-text
-            if count_text_collisions(fb, ofb) > 0:
+            # Layout Stability epsilon — совпадает с C++ kLayoutStabilityEps=1.0 мм
+            # Незначительные перекрытия текстовых рамок (≤1мм) не считаются конфликтом
+            if count_text_collisions(fb, ofb, 1.0) > 0:
                 return False, f"Text collision between [{j}] '{other.text_content}' -> [{i}] '{el.text_content}'"
 
             # Text-geometry (fallback vs forbidden)

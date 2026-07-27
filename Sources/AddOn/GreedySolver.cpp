@@ -13,20 +13,21 @@ namespace LayoutOptimizer {
 // -----------------------------------------------------------------------------
 // Helper: Count text-text collisions (AABB intersection)
 // -----------------------------------------------------------------------------
-int CountTextCollisions(const Candidate& a, const Candidate& b) {
+int CountTextCollisions(const Candidate& a, const Candidate& b, double eps) {
     if (!a.valid || !b.valid) return 0;
-    return a.textBox.Intersects(b.textBox) ? 1 : 0;
+    return a.textBox.Intersects(b.textBox, eps) ? 1 : 0;
 }
 
 // -----------------------------------------------------------------------------
 // Helper: Count text-geometry collisions
 // -----------------------------------------------------------------------------
 int CountGeometryCollisions(const Candidate& cand,
-                            const std::vector<Rect>& forbiddenGeometry) {
+                            const std::vector<Rect>& forbiddenGeometry,
+                            double eps) {
     if (!cand.valid) return 0;
     int count = 0;
     for (const Rect& obs : forbiddenGeometry) {
-        if (cand.textBox.Intersects(obs)) ++count;
+        if (cand.textBox.Intersects(obs, eps)) ++count;
     }
     return count;
 }
@@ -225,9 +226,15 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
         placedCandidates.reserve(elements.size());
         result.selectedCandidates.resize(elements.size());
 
+        // Layout Stability epsilon для текстовых коллизий (mm)
+        // Текстовые рамки могут незначительно перекрываться (≤1.0mm) из-за
+        // неточности определения fontHeight — это не считается конфликтом
+        // для целей Layout Stability. Полный collision resolution использует eps=1e-4.
+        constexpr double kLayoutStabilityEps = 1.0;
+
         // --- Layout Stability pre-check (Phase 6.5) ---
         // Если ВСЕ fallback-позиции (последний кандидат каждого элемента) не имеют
-        // пересечений друг с другом (текст, геометрия, линии), используем их без изменений.
+        // значимых пересечений друг с другом (текст, геометрия, линии), используем их без изменений.
         // Это гарантирует Layout Stability: элементы без конфликтов не двигаются,
         // даже если generated-кандидаты имеют меньший leaderLength/alignmentPenalty.
         bool allFallbacksStable = true;
@@ -239,8 +246,9 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
                 const auto& other = elements[j];
                 if (other.locked) continue;
                 const Candidate& otherFallback = other.candidates.back();
-                if (CountTextCollisions(fallback, otherFallback) > 0 ||
-                    CountGeometryCollisions(fallback, forbiddenGeometry) > 0 ||
+                // Используем kLayoutStabilityEps для игнорирования незначительных перекрытий
+                if (CountTextCollisions(fallback, otherFallback, kLayoutStabilityEps) > 0 ||
+                    CountGeometryCollisions(fallback, forbiddenGeometry, kLayoutStabilityEps) > 0 ||
                     CountLineCollisions(fallback, {otherFallback}, obstaclePolylines) > 0) {
                     allFallbacksStable = false;
                     break;

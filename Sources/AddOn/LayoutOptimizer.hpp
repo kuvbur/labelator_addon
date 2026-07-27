@@ -344,8 +344,8 @@ struct SolveResult {
 // 12. Function Declarations — for GreedySolver.cpp
 // -----------------------------------------------------------------------------
 // Collision helpers
-int CountTextCollisions(const Candidate& a, const Candidate& b);
-int CountGeometryCollisions(const Candidate& cand, const std::vector<Rect>& forbiddenGeometry);
+int CountTextCollisions(const Candidate& a, const Candidate& b, double eps = 1e-4);
+int CountGeometryCollisions(const Candidate& cand, const std::vector<Rect>& forbiddenGeometry, double eps = 1e-4);
 int CountLineCollisions(const Candidate& cand,
                         const std::vector<Candidate>& placedCandidates,
                         const std::vector<std::vector<Point2D>>& obstaclePolylines);

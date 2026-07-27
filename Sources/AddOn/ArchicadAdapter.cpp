@@ -325,28 +325,25 @@ namespace ArchicadAdapter {
                 if (err != NoError)
                     continue;
 
-                // Get memo FIRST (before modifying element) - required for ACAPI_Element_Change
-                // Получаем ВСЮ memo-структуру (APIMemoMask_All), чтобы сохранить
-                // текстовое содержимое. Передаём mask=0 в Change, поскольку
-                // мы изменяем только геометрию (позицию, угол), а не текст.
-                API_ElementMemo memo = {};
-                BNZero (memo);
-                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, APIMemoMask_All);
-                if (memoErr != NoError) {
-                    // No memo available, cannot modify safely
-                    continue;
-                }
+                // ВАЖНО: передаём nullptr вместо memo в ACAPI_Element_Change — 
+                // мы изменяем только геометрию (midC/endC), текст не трогаем.
+                // Это соответствует официальному примеру UpdateOneLabel (Element_Modify.cpp),
+                // который меняет begC/midC/endC без работы с memo.
 
                 // Build mask for label geometry changes
+                // ВАЖНО: устанавливаем маску ТОЛЬКО на изменяемые поля.
+                // begC (якорь) не меняется — не включаем его в маску.
                 API_Element mask;
                 BNZero (mask);
                 ACAPI_ELEMENT_MASK_CLEAR (mask);
-                ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, begC);
                 ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, midC);
                 ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, endC);
                 if (elem.label.labelClass == APILblClass_Text) {
                     ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.loc);
                     ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.angle);
+                } else {
+                    // Для custom label классов (GDL) — позиция символа/текста
+                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.symbol.pos);
                 }
 
                 // Update label leader polyline (begC, midC, endC)
@@ -378,10 +375,12 @@ namespace ArchicadAdapter {
                         solved.layout.textPosition.y + halfH    // +Y вниз, anchor ниже центра
                     };
                     elem.label.u.text.loc = PaperSpaceToModel (anchor, viewScaleDenom);
+                } else {
+                    // Для custom label классов — позиция символа совпадает с endC
+                    elem.label.u.symbol.pos = elem.label.endC;
                 }
 
-                err = ACAPI_Element_Change (&elem, &mask, &memo, 0, true);
-                ACAPI_DisposeElemMemoHdls (&memo);
+                err = ACAPI_Element_Change (&elem, &mask, nullptr, 0, true);
                 if (err != NoError)
                     return err;
             }
