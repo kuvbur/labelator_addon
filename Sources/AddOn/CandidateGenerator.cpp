@@ -118,7 +118,7 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
     const Rect& viewBoundary
 ) {
     std::vector<Candidate> candidates;
-    candidates.reserve (kRawCandidates + 1);
+    candidates.reserve (kRawCandidates + 1 + 8); // 24 radial + 1 fallback + 8 local
 
     // Text box size from current layout (preserve dimensions)
     Rect textBoxSize = currentLayout.textBox;
@@ -151,12 +151,45 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
     fallback.valid = true; // Unconditionally valid (bypasses filters)
     candidates.push_back (std::move (fallback));
 
+    // 3. Generate LOCAL candidates: small perturbations around fallback
+    // This allows the solver to nudge labels by 1-2mm to resolve tiny overlaps
+    // instead of jumping to faraway 5/10/20mm grid positions.
+    const std::array<Point2D, 8> kLocalDirs = {{
+        {-2.0,  0.0}, { 2.0,  0.0},  // left, right
+        { 0.0, -2.0}, { 0.0,  2.0},  // up, down (Y down = positive)
+        {-1.4, -1.4}, { 1.4, -1.4},  // up-left, up-right
+        {-1.4,  1.4}, { 1.4,  1.4},  // down-left, down-right
+    }};
+    for (const Point2D& dir : kLocalDirs) {
+        Candidate local;
+        local.textPosition = {
+            currentLayout.textPosition.x + dir.x,
+            currentLayout.textPosition.y + dir.y
+        };
+        double w = textBoxSize.Width();
+        double h = textBoxSize.Height();
+        local.textBox.left = local.textPosition.x - w * 0.5;
+        local.textBox.right = local.textPosition.x + w * 0.5;
+        local.textBox.top = local.textPosition.y - h * 0.5;
+        local.textBox.bottom = local.textPosition.y + h * 0.5;
+        local.leaderPolyline = currentLayout.leaderPolyline;
+        // Update only the end point of leader (text position)
+        if (local.leaderPolyline.size() >= 3) {
+            local.leaderPolyline[2] = local.textPosition;
+        }
+        local.angle = currentLayout.leaderAngle;
+        local.valid = true;
+        candidates.push_back (std::move (local));
+    }
+
     // 3. Filter candidates (mark invalid instead of removing, fallback bypasses filters)
+    // Fallback is at index kRawCandidates (24), local candidates follow
     std::vector<std::vector<Point2D>> obstaclePolylines; // Phase 4 placeholder
+    const size_t fallbackIndex = kRawCandidates; // 24
 
     for (size_t i = 0; i < candidates.size(); ++i) {
         Candidate& cand = candidates[i];
-        bool isFallback = (i == candidates.size() - 1);
+        bool isFallback = (i == fallbackIndex);
 
         if (isFallback) {
             // Fallback always passes, already valid = true

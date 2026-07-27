@@ -4,14 +4,14 @@
 // Integrates with LayoutOptimizer::CandidateGenerator and LayoutOptimizer::Solve
 
 #include "ACAPinc.h"
-#include "APIEnvir.h"
 #include "APICommon25.h"
+#include "APIEnvir.h"
 #include "ArchicadAdapter.hpp"
-#include "LayoutOptimizer.hpp"
 #include "CandidateGenerator.hpp"
+#include "LayoutOptimizer.hpp"
 #include <algorithm>
-#include <cstring>
 #include <cmath>
+#include <cstring>
 
 namespace ArchicadAdapter {
 
@@ -22,33 +22,26 @@ namespace ArchicadAdapter {
     template <typename T> inline void BNZero (T &obj) { BNZeroMemory (&obj, sizeof (T)); }
 
     double GetActiveViewScaleDenominator () {
-        double scale = 100.0;
-        GSErrCode err = ACAPI_Database (APIDb_GetDrawingScaleID, &scale, nullptr);
-        if (err == NoError && scale > 0.0)
-            return scale;
-        return 100.0;
+        return 1.0; // В Архикаде координаты не зависят от масштаба!
     }
 
-    LayoutOptimizer::Point2D ModelToPaperSpace (const API_Coord& modelCoord, double viewScaleDenom) {
-        const double scaleFactor = 1000.0 / viewScaleDenom;
+    LayoutOptimizer::Point2D ModelToPaperSpace (const API_Coord &modelCoord, double viewScaleDenom) {
+        const double scaleFactor = 1; // В Архикаде координаты не зависят от масштаба!
         return {
             modelCoord.x * scaleFactor,
-            -modelCoord.y * scaleFactor  // Y-flip: model +Y up -> paper +Y down
+            -modelCoord.y * scaleFactor // Y-flip: model +Y up -> paper +Y down
         };
     }
 
-    API_Coord PaperSpaceToModel (const LayoutOptimizer::Point2D& paperCoord, double viewScaleDenom) {
-        const double scaleFactor = viewScaleDenom / 1000.0;
-        return {
-            paperCoord.x * scaleFactor,
-            -paperCoord.y * scaleFactor
-        };
+    API_Coord PaperSpaceToModel (const LayoutOptimizer::Point2D &paperCoord, double viewScaleDenom) {
+        const double scaleFactor = 1; // В Архикаде координаты не зависят от масштаба!
+        return {paperCoord.x * scaleFactor, -paperCoord.y * scaleFactor};
     }
 
     // -----------------------------------------------------------------------------
     // Lock detection - используем стандартные API-флаги и атрибуты слоев
     // -----------------------------------------------------------------------------
-    bool IsElementLocked (const API_Guid& guid) {
+    bool IsElementLocked (const API_Guid &guid) {
         API_Element element = {};
         BNZero (element);
         element.header.guid = guid;
@@ -66,14 +59,14 @@ namespace ArchicadAdapter {
         layerAttr.header.typeID = API_LayerID;
         layerAttr.header.index = element.header.layer;
         if (ACAPI_Attribute_Get (&layerAttr) == NoError) {
-            if (layerAttr.layer.head.flags & 1)  // Layer locked flag
+            if (layerAttr.layer.head.flags & 1) // Layer locked flag
                 return true;
         }
 
         return false;
     }
 
-    LayoutOptimizer::ElementId GetElementId (const API_Guid& guid) {
+    LayoutOptimizer::ElementId GetElementId (const API_Guid &guid) {
         LayoutOptimizer::ElementId id = 0;
         id |= static_cast<LayoutOptimizer::ElementId> (guid.time_low) << 32;
         id |= static_cast<LayoutOptimizer::ElementId> (guid.time_mid) << 16;
@@ -84,7 +77,7 @@ namespace ArchicadAdapter {
     // -----------------------------------------------------------------------------
     // Точное извлечение текстового бокса из memo (API_ElementMemo)
     // -----------------------------------------------------------------------------
-    LayoutOptimizer::Rect GetTextBoxPaperSpace (const API_Element& elem, double viewScaleDenom) {
+    LayoutOptimizer::Rect GetTextBoxPaperSpace (const API_Element &elem, double viewScaleDenom) {
         LayoutOptimizer::Rect box = {};
 
         API_ElementMemo memo = {};
@@ -95,12 +88,12 @@ namespace ArchicadAdapter {
         if (err != NoError)
             return box;
 
-        double textWidthMm = 50.0;  // fallback — будет уточнён ниже
-        double textHeightMm = 3.0;  // fallback — будет уточнён ниже
+        double textWidthMm = 50.0; // fallback — будет уточнён ниже
+        double textHeightMm = 3.0; // fallback — будет уточнён ниже
 
         // Извлекаем точный bounding box текста из paragraphs
         if (memo.paragraphs != nullptr && memo.paragraphs[0] != nullptr) {
-            const API_ParagraphType& para = memo.paragraphs[0][0];
+            const API_ParagraphType &para = memo.paragraphs[0][0];
             // para.height — высота шрифта в модели (модельные единицы)
             double fontSizeMm = para.height > 0.0 ? para.height * 1000.0 / viewScaleDenom : 2.5;
             double charWidthMm = fontSizeMm * 0.6;
@@ -155,7 +148,8 @@ namespace ArchicadAdapter {
     // -----------------------------------------------------------------------------
     // Leader polyline extraction (Label elements)
     // -----------------------------------------------------------------------------
-    std::vector<LayoutOptimizer::Point2D> GetLeaderPolylinePaperSpace (const API_Element& labelElem, double viewScaleDenom) {
+    std::vector<LayoutOptimizer::Point2D> GetLeaderPolylinePaperSpace (const API_Element &labelElem,
+                                                                       double viewScaleDenom) {
         std::vector<LayoutOptimizer::Point2D> poly;
 
         API_Coord begC = labelElem.label.begC;
@@ -174,17 +168,15 @@ namespace ArchicadAdapter {
     // -----------------------------------------------------------------------------
     // Dimension measure points extraction
     // -----------------------------------------------------------------------------
-    std::vector<LayoutOptimizer::Point2D> GetDimensionMeasurePoints (const API_Element& dimElem, double viewScaleDenom) {
+    std::vector<LayoutOptimizer::Point2D> GetDimensionMeasurePoints (const API_Element &dimElem,
+                                                                     double viewScaleDenom) {
         std::vector<LayoutOptimizer::Point2D> pts;
 
-        const API_DimensionType& dim = dimElem.dimension;
+        const API_DimensionType &dim = dimElem.dimension;
 
         pts.push_back (ModelToPaperSpace (dim.refC, viewScaleDenom));
 
-        API_Coord dirEnd = {
-            dim.refC.x + dim.direction.x,
-            dim.refC.y + dim.direction.y
-        };
+        API_Coord dirEnd = {dim.refC.x + dim.direction.x, dim.refC.y + dim.direction.y};
         pts.push_back (ModelToPaperSpace (dirEnd, viewScaleDenom));
 
         return pts;
@@ -204,7 +196,7 @@ namespace ArchicadAdapter {
             GSErrCode err = ACAPI_Element_GetElemList (API_LabelID, &guids);
             if (err == NoError) {
                 for (UInt32 i = 0; i < guids.GetSize (); ++i) {
-                    const API_Guid& guid = guids[i];
+                    const API_Guid &guid = guids[i];
                     API_Element elem = {};
                     BNZero (elem);
                     elem.header.guid = guid;
@@ -241,7 +233,7 @@ namespace ArchicadAdapter {
             GSErrCode err = ACAPI_Element_GetElemList (API_DimensionID, &guids);
             if (err == NoError) {
                 for (UInt32 i = 0; i < guids.GetSize (); ++i) {
-                    const API_Guid& guid = guids[i];
+                    const API_Guid &guid = guids[i];
                     API_Element elem = {};
                     BNZero (elem);
                     elem.header.guid = guid;
@@ -279,20 +271,18 @@ namespace ArchicadAdapter {
     // -----------------------------------------------------------------------------
     // Build forbidden geometry and obstacle polylines from locked elements
     // -----------------------------------------------------------------------------
-    void BuildObstacleData (
-        const CollectResult& collected,
-        std::vector<LayoutOptimizer::Rect>& forbiddenGeometry,
-        std::vector<std::vector<LayoutOptimizer::Point2D>>& obstaclePolylines
-    ) {
+    void BuildObstacleData (const CollectResult &collected,
+                            std::vector<LayoutOptimizer::Rect> &forbiddenGeometry,
+                            std::vector<std::vector<LayoutOptimizer::Point2D>> &obstaclePolylines) {
         // Locked elements act as obstacles
-        for (const auto& le : collected.leaders) {
+        for (const auto &le : collected.leaders) {
             if (le.locked) {
                 forbiddenGeometry.push_back (le.layout.textBox);
                 if (le.layout.leaderPolyline.size () >= 2)
                     obstaclePolylines.push_back (le.layout.leaderPolyline);
             }
         }
-        for (const auto& de : collected.dimensions) {
+        for (const auto &de : collected.dimensions) {
             if (de.locked) {
                 forbiddenGeometry.push_back (de.layout.textBox);
             }
@@ -302,17 +292,17 @@ namespace ArchicadAdapter {
     // -----------------------------------------------------------------------------
     // Apply changes back to Archicad elements (wrapped in Undo scope)
     // -----------------------------------------------------------------------------
-    GSErrCode ApplyChanges (const CollectResult& original,
-                            const std::vector<LayoutOptimizer::LeaderElement>& solvedLeaders,
-                            const std::vector<LayoutOptimizer::DimensionElement>& solvedDimensions,
+    GSErrCode ApplyChanges (const CollectResult &original,
+                            const std::vector<LayoutOptimizer::LeaderElement> &solvedLeaders,
+                            const std::vector<LayoutOptimizer::DimensionElement> &solvedDimensions,
                             double viewScaleDenom) {
         return ACAPI_CallUndoableCommand (GS::UniString ("Optimize Annotations"), [&] () -> GSErrCode {
             GSErrCode err = NoError;
 
             // Apply label changes
             for (size_t i = 0; i < solvedLeaders.size () && i < original.leaderGuids.size (); ++i) {
-                const API_Guid& guid = original.leaderGuids[i];
-                const LayoutOptimizer::LeaderElement& solved = solvedLeaders[i];
+                const API_Guid &guid = original.leaderGuids[i];
+                const LayoutOptimizer::LeaderElement &solved = solvedLeaders[i];
 
                 if (solved.locked)
                     continue;
@@ -325,7 +315,7 @@ namespace ArchicadAdapter {
                 if (err != NoError)
                     continue;
 
-                // ВАЖНО: передаём nullptr вместо memo в ACAPI_Element_Change — 
+                // ВАЖНО: передаём nullptr вместо memo в ACAPI_Element_Change —
                 // мы изменяем только геометрию (midC/endC), текст не трогаем.
                 // Это соответствует официальному примеру UpdateOneLabel (Element_Modify.cpp),
                 // который меняет begC/midC/endC без работы с memo.
@@ -338,19 +328,12 @@ namespace ArchicadAdapter {
                 ACAPI_ELEMENT_MASK_CLEAR (mask);
                 ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, midC);
                 ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, endC);
-                if (elem.label.labelClass == APILblClass_Text) {
-                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.loc);
-                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.angle);
-                } else {
-                    // Для custom label классов (GDL) — позиция символа/текста
-                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.symbol.pos);
-                }
-
+                ACAPI_ELEMENT_MASK_SET (
+                    mask,
+                    API_LabelType,
+                    begC); // Даже если не меняем - нужно задать в максе - инче ошибка в ACAPI_Element_Change
                 // Update label leader polyline (begC, midC, endC)
-                // Гарантируем 3 точки для структурной целостности
-                if (solved.layout.leaderPolyline.size () >= 1) {
-                    elem.label.begC = PaperSpaceToModel (solved.layout.leaderPolyline[0], viewScaleDenom);
-                }
+                // Гарантируем 2 точки для структурной целостности
                 if (solved.layout.leaderPolyline.size () >= 2) {
                     elem.label.midC = PaperSpaceToModel (solved.layout.leaderPolyline[1], viewScaleDenom);
                 } else {
@@ -363,7 +346,6 @@ namespace ArchicadAdapter {
                     // Если 2 точки, используем вторую как endC
                     elem.label.endC = elem.label.midC;
                 }
-
                 // Update text position for text labels
                 // textPosition — центр textBox, а u.text.loc — левый-нижний угол.
                 // Конвертируем центр → anchor, чтобы позиция не сдвигалась на каждом проходе (баг #1)
@@ -372,14 +354,15 @@ namespace ArchicadAdapter {
                     double halfH = solved.layout.textBox.Height () * 0.5;
                     LayoutOptimizer::Point2D anchor = {
                         solved.layout.textPosition.x - halfW,
-                        solved.layout.textPosition.y + halfH    // +Y вниз, anchor ниже центра
+                        solved.layout.textPosition.y + halfH // +Y вниз, anchor ниже центра
                     };
+                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.text.loc);
                     elem.label.u.text.loc = PaperSpaceToModel (anchor, viewScaleDenom);
                 } else {
                     // Для custom label классов — позиция символа совпадает с endC
+                    ACAPI_ELEMENT_MASK_SET (mask, API_LabelType, u.symbol.pos);
                     elem.label.u.symbol.pos = elem.label.endC;
                 }
-
                 err = ACAPI_Element_Change (&elem, &mask, nullptr, 0, true);
                 if (err != NoError)
                     return err;
@@ -387,8 +370,8 @@ namespace ArchicadAdapter {
 
             // Apply dimension changes
             for (size_t i = 0; i < solvedDimensions.size () && i < original.dimensionGuids.size (); ++i) {
-                const API_Guid& guid = original.dimensionGuids[i];
-                const LayoutOptimizer::DimensionElement& solved = solvedDimensions[i];
+                const API_Guid &guid = original.dimensionGuids[i];
+                const LayoutOptimizer::DimensionElement &solved = solvedDimensions[i];
 
                 if (solved.locked)
                     continue;
@@ -452,7 +435,7 @@ namespace ArchicadAdapter {
         std::vector<LayoutOptimizer::ElementInput> inputs;
 
         // Add leaders - generate candidates via CandidateGenerator
-        for (const auto& le : collected.leaders) {
+        for (const auto &le : collected.leaders) {
             LayoutOptimizer::ElementInput input;
             input.type = LayoutOptimizer::ElementType::Leader;
             input.locked = le.locked;
@@ -462,18 +445,14 @@ namespace ArchicadAdapter {
             // Generate candidates using CandidateGenerator
             std::vector<LayoutOptimizer::Candidate> candidates =
                 LayoutOptimizer::CandidateGenerator::GenerateForLeader (
-                    le.geo.anchorPoint,
-                    le.layout,
-                    forbiddenGeometry,
-                    viewBoundary
-                );
+                    le.geo.anchorPoint, le.layout, forbiddenGeometry, viewBoundary);
 
             input.candidates = std::move (candidates);
             inputs.push_back (std::move (input));
         }
 
         // Add dimensions - generate candidates via CandidateGenerator
-        for (const auto& de : collected.dimensions) {
+        for (const auto &de : collected.dimensions) {
             LayoutOptimizer::ElementInput input;
             input.type = LayoutOptimizer::ElementType::Dimension;
             input.locked = de.locked;
@@ -481,18 +460,12 @@ namespace ArchicadAdapter {
             input.initialTextPosition = de.layout.textPosition;
 
             // Use first measure point as anchor for candidate generation
-            LayoutOptimizer::Point2D measurePoint = de.geo.measurePoints.empty ()
-                ? LayoutOptimizer::Point2D{0, 0}
-                : de.geo.measurePoints[0];
+            LayoutOptimizer::Point2D measurePoint =
+                de.geo.measurePoints.empty () ? LayoutOptimizer::Point2D{0, 0} : de.geo.measurePoints[0];
 
             std::vector<LayoutOptimizer::Candidate> candidates =
                 LayoutOptimizer::CandidateGenerator::GenerateForDimension (
-                    measurePoint,
-                    de.layout,
-                    de.geo.direction,
-                    forbiddenGeometry,
-                    viewBoundary
-                );
+                    measurePoint, de.layout, de.geo.direction, forbiddenGeometry, viewBoundary);
 
             // Note: For dimensions, offset should be perpendicular distance.
             // The CandidateGenerator creates radial candidates; the solver will
@@ -503,7 +476,8 @@ namespace ArchicadAdapter {
         }
 
         // Solve using LayoutOptimizer
-        LayoutOptimizer::SolveResult solveResult = LayoutOptimizer::Solve (inputs, forbiddenGeometry, obstaclePolylines);
+        LayoutOptimizer::SolveResult solveResult =
+            LayoutOptimizer::Solve (inputs, forbiddenGeometry, obstaclePolylines);
 
         // Extract solved leaders and dimensions
         std::vector<LayoutOptimizer::LeaderElement> solvedLeaders;
@@ -512,8 +486,8 @@ namespace ArchicadAdapter {
         size_t leaderIdx = 0;
         size_t dimIdx = 0;
         for (size_t i = 0; i < solveResult.selectedCandidates.size () && i < inputs.size (); ++i) {
-            const LayoutOptimizer::Candidate& cand = solveResult.selectedCandidates[i];
-            const LayoutOptimizer::ElementInput& input = inputs[i];
+            const LayoutOptimizer::Candidate &cand = solveResult.selectedCandidates[i];
+            const LayoutOptimizer::ElementInput &input = inputs[i];
 
             if (input.type == LayoutOptimizer::ElementType::Leader && leaderIdx < collected.leaders.size ()) {
                 LayoutOptimizer::LeaderElement le = collected.leaders[leaderIdx];
@@ -538,8 +512,6 @@ namespace ArchicadAdapter {
         return ApplyChanges (collected, solvedLeaders, solvedDimensions, viewScaleDenom);
     }
 
-    GSErrCode RunOptimization () {
-        return SolveAndApply ();
-    }
+    GSErrCode RunOptimization () { return SolveAndApply (); }
 
 } // namespace ArchicadAdapter

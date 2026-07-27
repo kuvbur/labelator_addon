@@ -266,6 +266,28 @@ def generate_candidates(el: VerifElement) -> List[Candidate]:
     if el.fallback:
         candidates.append(el.fallback)
 
+    # Local candidates: small perturbations around fallback (mirror C++ CandidateGenerator)
+    # This allows the solver to nudge labels by 1-2mm to resolve tiny overlaps
+    # instead of jumping to faraway 5/10/20mm grid positions.
+    kLocalDirs = [
+        (-2.0,  0.0), ( 2.0,  0.0),  # left, right
+        ( 0.0, -2.0), ( 0.0,  2.0),  # up, down (Y down = positive)
+        (-1.4, -1.4), ( 1.4, -1.4),  # up-left, up-right
+        (-1.4,  1.4), ( 1.4,  1.4),  # down-left, down-right
+    ]
+    if el.fallback:
+        for dx, dy in kLocalDirs:
+            new_pos = Point2D(el.fallback.text_position.x + dx, el.fallback.text_position.y + dy)
+            box = Rect.from_lb_wh(new_pos.x, new_pos.y, el.text_width, el.text_height)
+            poly = _rebuild_leader_polyline(el, new_pos)
+            candidates.append(Candidate(
+                text_position=new_pos,
+                text_box=box,
+                leader_polyline=poly,
+                angle=el.fallback.angle,
+                valid=True
+            ))
+
     return candidates
 
 
