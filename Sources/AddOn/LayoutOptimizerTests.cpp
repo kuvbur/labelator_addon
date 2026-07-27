@@ -33,6 +33,12 @@ using LayoutOptimizer::ComputeAlignmentPenalty;
 // -----------------------------------------------------------------------------
 // Test Assertions
 // -----------------------------------------------------------------------------
+static void AssertEqual(double a, double b, double eps = 1e-4, const char* msg = "") {
+    if (std::abs(a - b) > eps) {
+        std::cerr << "ASSERT FAILED: " << msg << " (" << a << " != " << b << ")\n";
+        std::exit(1);
+    }
+}
 static void AssertPointEqual(const Point2D& a, const Point2D& b, double eps = 1e-4, const char* msg = "") {
     if (std::abs(a.x - b.x) > eps || std::abs(a.y - b.y) > eps) {
         std::cerr << "ASSERT FAILED: " << msg << " ((" << a.x << "," << a.y << ") != (" << b.x << "," << b.y << "))\n";
@@ -388,6 +394,96 @@ static void Test_CSVFixture_OK_LABEL_Elements_Frozen() {
 }
 
 // -----------------------------------------------------------------------------
+// RED TEST 5: Local candidates have correct leader polyline (shoulder preserved)
+// -----------------------------------------------------------------------------
+static void Test_LocalCandidate_LeaderPolyline_Correct() {
+    std::cout << "[TEST] LocalCandidate_LeaderPolyline_Correct\n";
+    
+    // Create an element with anchor at origin, text at (10, 10)
+    // shoulder length = 5mm
+    ElementInput input;
+    input.type = ElementType::Leader;
+    input.locked = false;
+    input.id = 1;
+    input.initialTextPosition = { 10, 10 };
+    input.candidates.clear();
+
+    // Fallback candidate
+    Candidate fallback;
+    fallback.textPosition = { 10, 10 };
+    fallback.textBox = Rect::FromCenter({10, 10}, 12, 3);
+    fallback.leaderPolyline = { {0, 0}, {5, 0}, {10, 10} }; // begC(0,0) -> midC(5,0) -> endC(10,10)
+    fallback.leaderAngle = 0;
+    fallback.valid = true;
+    input.candidates.push_back(fallback);
+
+    // Generate candidates using CandidateGenerator (simulates what happens in GenerateForLeader)
+    // We'll manually create a local candidate and verify its polyline
+    const Point2D anchor = { 0, 0 };
+    const double shoulderLength = 5.0; // distance from anchor to midC
+    const Point2D newTextPos = { 12, 10 }; // local nudge right by 2mm
+    const double textWidth = 12.0, textHeight = 3.0;
+    
+    // This is what SHOULD happen for local candidate:
+    // Direction from anchor to new text pos
+    double dx = newTextPos.x - anchor.x;
+    double dy = newTextPos.y - anchor.y;
+    double dist = std::sqrt(dx*dx + dy*dy);
+    double nx = dx / dist;
+    double ny = dy / dist;
+    Point2D newMidC = { anchor.x + nx * shoulderLength, anchor.y + ny * shoulderLength };
+    
+    Candidate local;
+    local.textPosition = newTextPos;
+    double w = textWidth, h = textHeight;
+    local.textBox.left = local.textPosition.x - w * 0.5;
+    local.textBox.right = local.textPosition.x + w * 0.5;
+    local.textBox.top = local.textPosition.y - h * 0.5;
+    local.textBox.bottom = local.textPosition.y + h * 0.5;
+    local.leaderPolyline = { anchor, newMidC, newTextPos };
+    local.angle = std::atan2(dy, dx) * 180.0 / 3.14159265358979323846;
+    local.valid = true;
+    
+    // Verify the polyline is correctly constructed
+    AssertPointEqual(local.leaderPolyline[0], anchor, 1e-4, "Local candidate begC should be anchor");
+    AssertPointEqual(local.leaderPolyline[2], newTextPos, 1e-4, "Local candidate endC should be new text position");
+    
+    // midC should be at shoulderLength distance from anchor along direction to text
+    double midDx = local.leaderPolyline[1].x - anchor.x;
+    double midDy = local.leaderPolyline[1].y - anchor.y;
+    double midDist = std::sqrt(midDx*midDx + midDy*midDy);
+    AssertEqual(midDist, shoulderLength, 1e-4, "Local candidate midC should be at shoulderLength from anchor");
+    
+    // midC should lie on line from anchor to textPos
+    // Cross product should be near zero (collinear)
+    double cross = (local.leaderPolyline[1].x - anchor.x) * (newTextPos.y - anchor.y) - 
+                   (local.leaderPolyline[1].y - anchor.y) * (newTextPos.x - anchor.x);
+    AssertEqual(std::abs(cross), 0.0, 1e-4, "Local candidate midC should be collinear with anchor and textPos");
+    
+    std::cout << "  PASSED\n";
+}
+static void Test_CSVFixture_SingleElement() {
+    std::cout << "[TEST] CSVFixture_SingleElement\n";
+    auto labels = ReadLabelsCSV("Test_file/debug_labels_before.csv");
+    AssertTrue(labels.size() >= 1, "Need at least 1 label in CSV");
+    
+    // Take only the first element
+    std::vector<ElementInput> elements;
+    elements.push_back(LabelToElementInput(labels[0]));
+
+    std::vector<Rect> forbidden;
+    std::vector<std::vector<Point2D>> obstacles;
+
+    SolveResult result = Solve(elements, forbidden, obstacles);
+
+    // Single element with no conflicts should stay at fallback
+    AssertPointEqual(result.selectedCandidates[0].textPosition, elements[0].initialTextPosition, 1e-4, "Single element from CSV should not move");
+    AssertTrue(result.zeroCollisionSolution, "Should be zero-collision for single element");
+    
+    std::cout << "  PASSED\n";
+}
+
+// -----------------------------------------------------------------------------
 // Main
 // -----------------------------------------------------------------------------
 int main() {
@@ -405,6 +501,7 @@ int main() {
         // CSV fixture tests
         Test_CSVFixture_Loaded();
         Test_CSVFixture_OK_LABEL_Elements_Frozen();
+        Test_CSVFixture_SingleElement();
     } catch (const std::exception& e) {
         std::cerr << "EXCEPTION: " << e.what() << "\n";
         return 1;

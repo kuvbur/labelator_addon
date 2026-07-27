@@ -318,7 +318,41 @@ grep -rn "unordered_map\|unordered_set" Sources/AddOn/LayoutOptimizer.hpp Source
 2. **Manual testing** in Archicad with actual `.pln` files
 3. **Automated checks**: grep/syntax/compile checks — NOT behavioral Python simulations
 
-Previously used Python verifier (`Tools/verify_layout.py`) and ad-hoc scripts have been removed from the repository. CSV fixtures in `Test_file/` are preserved for manual inspection only.
+---
+
+## 🧪 TEST-DRIVEN DEVELOPMENT (TDD) — Iron Rule
+
+**NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+
+### Test File
+`Sources/AddOn/LayoutOptimizerTests.cpp` — C++ unit tests (pure C++17, NO ACAPI)
+
+### Tests (RED → GREEN cycle):
+1. `Test_SingleElement_NoMovement` — single label stays at fallback
+2. `Test_TwoElements_OK_LABEL_Stable` — far-apart labels don't move
+3. `Test_TwoElements_BAD_LABEL_Resolved` — overlapping labels resolved via nudge
+4. `Test_ThreeElements_ChainConflict` — chain collision resolved
+5. `Test_CSVFixture_Loaded` — CSV fixture loads correctly
+4. `Test_CSVFixture_OK_LABEL_Elements_Frozen` — OK_LABEL elements frozen at fallback
+
+### Workflow:
+```bash
+# Build (includes tests)
+python Tools/BuildAddOn.py -c config.json -v 25
+```
+Tests compile as part of main project. Pure C++17, no Archicad dependencies.
+
+### Verification Checklist (before marking complete):
+- [ ] Every new function/method has a test
+- [ ] Watched each test fail before implementing
+- [ ] Each test failed for expected reason (feature missing, not typo)
+- [ ] Wrote minimal code to pass each test
+- [ ] All tests pass
+- [ ] Output pristine (no errors, warnings)
+- [ ] Tests use real code (mocks only if unavoidable)
+- [ ] Edge cases and errors covered
+
+Can't check all boxes? You skipped TDD. Start over.
 
 ---
 
@@ -336,6 +370,305 @@ Previously used Python verifier (`Tools/verify_layout.py`) and ad-hoc scripts ha
    - Text box: `para.width/height` instead of `strlen` ✓
    - Lock detection: `floorInd & 0x8000` + `layer.head.flags & 1` ✓
    - 3 points `begC/midC/endC` for structural integrity ✓
+
+---
+
+## Code Review — ArchicadAdapter Submission
+
+**Scope:** `ArchicadAdapter.{hpp,cpp}`, `LayoutOptimizer.hpp`, `CandidateGenerator.{hpp,cpp}`, `GreedySolver.cpp`, `DebugExport.hpp`, `Dimension_Main.cpp`, `LayoutOptimizerTests.cpp`.
+
+Per the **Bug Fix Gate** in IDEA.md: findings marked 🔴 CRITICAL block everything else — fix and re-verify before touching Phase 7/8 or re-running any manual test in Archicad. Findings are ordered by fix priority, not by file.
+
+---
+
+### 🔴 CRITICAL 1 — `ModelToPaperSpace` / `PaperSpaceToModel` do not convert units at all
+
+**File:** `ArchicadAdapter.cpp:32-48`
+
+```cpp
+double GetActiveViewScaleDenominator () {
+    return 1.0; // В Архикаде координаты не зависят от масштаба!
+}
+
+LayoutOptimizer::Point2D ModelToPaperSpace (const API_Coord &modelCoord, double viewScaleDenom) {
+    const double scaleFactor = 1; // В Архикаде координаты не зависят от масштаба!
+    return {modelCoord.x * scaleFactor, modelCoord.y * scaleFactor};
+}
+```
+
+This is a pure identity transform — positions pass through unchanged. Compare this to `GetTextBoxPaperSpace` in the **same file** (line 95, 101):
+
+```cpp
+double fontSizeMm = para.height > 0.0 ? para.height * 1000.0 / viewScaleDenom : 2.5;
+textWidthMm = para.width * 1000.0 / viewScaleDenom;
+```
+
+Text **size** is correctly converted from Archicad's model units (meters) to millimeters via `× 1000.0`. Text **position** is not. This is an internal inconsistency regardless of what Archicad's exact coordinate convention turns out to be — one code path in this file treats model values as needing a ×1000 conversion, the other doesn't, and they feed into the same `Rect`:
+
+```cpp
+box.left = p.x;                 // unconverted (likely meters)
+box.right = p.x + textWidthMm;  // p.x + a real-millimeter value
+```
+
+**Consequences if positions are indeed in meters** (the standard Archicad ACAPI convention, and the only reading consistent with the file's own size-conversion code):
+- Every `textBox` is built from a meters-scale position plus a millimeters-scale size — the box geometry is nonsensical relative to itself.
+- Candidate generation adds `kCandidateDistancesMm` (5/10/20, intended as millimeters) directly onto an unconverted anchor: `cand.textPosition.x = anchor.x + distanceMm * cos(rad)`. If `anchor.x` is in meters, this moves the candidate **5–20 real meters**, not millimeters, from the anchor.
+- Any such candidate that gets selected is written straight back through `PaperSpaceToModel` (also an identity transform) — meaning a chosen non-fallback candidate would relocate a label/dimension text several meters away from its leader in the actual drawing.
+
+**Why this hasn't shown up in testing yet:** CRITICAL 2 below (the Layout Stability shortcut) currently causes most elements to keep their fallback/current position without ever evaluating a grid candidate. The two bugs are currently masking each other — fixing #2 in isolation will very likely make previously-invisible mislocated labels appear, which could look like a new regression when it's actually this pre-existing bug being unmasked. **Fix both together, or fix this one first.**
+
+**Recommended fix:** apply the same `× 1000.0` (and confirm whether `/ viewScaleDenom` is also needed for position, or only for scale-dependent sizes — AGENTS.md §21 requires this be verified against the indexed Archicad documentation/examples via LightRAG MCP before writing the fix, not assumed).
+
+**Blast radius:** this affects `anchorPoint`, `leaderPolyline`, `measurePoints`, `textPosition`/`textBox` for every element, and therefore every downstream Rect/collision computation. Nothing else in this review can be considered reliably tested until this is fixed.
+
+---
+
+### 🔴 CRITICAL 1b — `GetTextBoxPaperSpace`: `para.width`/`para.height` уже в мм, но код домножает на 1000.0 ещё раз
+
+**Тот же файл, та же функция (`ArchicadAdapter.cpp:89-155`), отдельный подтверждённый баг, который придётся чинить вместе с Critical 1.**
+
+Официальная документация Graphisoft (`API_ParagraphType`) прямо указывает:
+- `Width of the paragraph in mm (output only)`
+- `Height of the paragraph in mm (output only)`
+
+То есть `para.width` и `para.height` — **уже миллиметры**. Но код:
+
+```cpp
+double fontSizeMm = para.height > 0.0 ? para.height * 1000.0 / viewScaleDenom : 2.5;
+...
+textWidthMm = para.width * 1000.0 / viewScaleDenom;
+```
+
+домножает уже-миллиметровое значение ещё на 1000.0. При `viewScaleDenom = 1.0` (текущий хардкод) реальный текст шириной 45 мм превращается в «45000 мм» = 45-метровый текстбокс. Это отдельный от Critical 1 баг (тот был про позицию/`ModelToPaperSpace`, этот — про размер/`para.width`/`para.height`), но в той же функции, и их придётся чинить вместе.
+
+---
+
+### 🔴 CRITICAL 1c — `GetTextBoxPaperSpace`: жёстко задан bottom-left anchor, но у Label/Text есть настраиваемый Text Anchor Point
+
+Архикад имеет явное понятие **Text Anchor Point** — точка привязки, определяющая, какой угол/центр текстового блока представляет хранимая позицию (`u.text.loc`). Код же безусловно считает bottom-left:
+
+```cpp
+box.left = p.x;
+box.bottom = p.y;
+box.top = p.y - textHeightMm;
+box.right = p.x + textWidthMm;
+```
+
+Если у реального лейбла anchor настроен иначе (top-left, center и т.д. — штатная настройка в Label Tool Settings), вычисленный `textBox` будет систематически смещён относительно реального отрисованного блока на величину до целой ширины/высоты бокса.
+
+Точное имя enum-поля для anchor в AC25 API я не смог зафиксировать по открытой документации на 100% — это именно то место, где по AGENTS.md §21 **нужен обязательный запрос в LightRAG MCP** перед тем, как писать фикс, а не полагаться на память об API.
+
+---
+
+### 🟡 MEDIUM 13 — `GetTextBoxPaperSpace`: читает только `memo.paragraphs[0][0]` — первая строка
+
+Многострочные лейблы будут недооценены по высоте/ширине (учитывается только первый параграф).
+
+---
+
+### 🔴 CRITICAL 2 — Layout Stability shortcut skips geometry/line collision checks entirely
+
+**File:** `GreedySolver.cpp:251-279`
+
+```cpp
+// Layout Stability check: если fallback не имеет значимых пересечений
+// (с учётом kLayoutStabilityEps) с уже размещёнными, используем его без поиска.
+const Candidate& fallback = element.candidates.back();
+bool fallbackStable = true;
+const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
+for (const Candidate& placed : placedCandidates) {
+    const Rect plBox = ShrinkRect (placed.textBox, kLayoutStabilityEps * 0.5);
+    if (fbBox.Intersects (plBox)) {
+        fallbackStable = false;
+        break;
+    }
+}
+if (fallbackStable) {
+    result.selectedCandidates[pe.originalIndex] = fallback;
+    placedCandidates.push_back(fallback);
+    continue;
+}
+```
+
+This only checks the fallback's text box against **already-placed candidates' text boxes**. It never checks `forbiddenGeometry` (Hard 2) or `obstaclePolylines` (Hard 3). Since `placedCandidates` starts empty and grows slowly, **the first element processed in every run always short-circuits here regardless of what it's sitting on top of** — a text box parked directly over forbidden geometry, or a leader line crossing an obstacle, will be accepted without any check.
+
+This is also not in AGENTS.md anywhere — it's an undocumented heuristic (`kLayoutStabilityEps = 1.0`, a new invented constant) that should have gone through the Ambiguity Protocol (AGENTS.md §14: mark with `// ASSUMPTION:`, flag for review) but wasn't. Per §15, inventing new tolerances outside the fixed grid/cost model without updating AGENTS.md first is explicitly forbidden.
+
+**It's also unnecessary for its stated purpose.** If the fallback candidate genuinely has zero collisions of any kind, the normal `EvaluateCandidate` loop just below already selects it — `movement = 0` for the fallback gives it the lowest possible cost among equally-collision-free candidates. The shortcut doesn't add correctness, it *removes* it.
+
+**No existing test would catch this** — see the Testing Gap note below.
+
+**Recommended fix:** delete the shortcut, or at minimum extend it to also check `forbiddenGeometry` and `obstaclePolylines` before bypassing the full cost evaluation — using the same `kLayoutStabilityEps` tolerance only for text-text comparison (where the stated font-metric-imprecision rationale actually applies), not for geometry/line checks.
+
+---
+
+### 🟠 HIGH 3 — `obstaclePolylines` never reaches candidate filtering (Filter Step 3 is dead code)
+
+**Files:** `CandidateGenerator.hpp:26-43`, `CandidateGenerator.cpp:187, 283`, `ArchicadAdapter.cpp:444-445, 464-465`
+
+`GenerateForLeader` / `GenerateForDimension` don't take an `obstaclePolylines` parameter at all. Inside both functions:
+
+```cpp
+std::vector<std::vector<Point2D>> obstaclePolylines; // Phase 4 placeholder
+```
+
+— an always-empty local vector is what `PassesObstacleLines` actually filters against, regardless of what real obstacle data exists. Meanwhile `ArchicadAdapter::SolveAndApply()` **does** collect real obstacle polylines via `BuildObstacleData` and **does** pass them correctly into `LayoutOptimizer::Solve(inputs, forbiddenGeometry, obstaclePolylines)` (line 477) — so `CountLineCollisions` inside cost evaluation still penalizes real obstacle crossings during solving. The pre-solve pruning step from AGENTS.md §7 ("Obstacle Line Crossing") simply never runs, though.
+
+**Practical effect:** softer than it looks, because the cost-based check is a redundant safety net — but:
+- `rejectedCandidates` in `OptimizationLog` (AGENTS.md §12) will under-count, since nothing is ever invalidated by this filter.
+- The documented 3-step filtering pipeline in AGENTS.md §7 doesn't match what the code does, which will confuse the next agent session reading AGENTS.md as ground truth.
+- The performance benefit of early pruning ("reduces the solution space early," §7) is lost.
+
+**Recommended fix:** add an `obstaclePolylines` parameter to both `GenerateForLeader` and `GenerateForDimension`, and pass the real one from `SolveAndApply`.
+
+---
+
+### 🟠 HIGH 4 — Undocumented "local perturbation" candidates outside the AGENTS.md §6 fixed grid
+
+**File:** `CandidateGenerator.cpp:154-183`
+
+```cpp
+// 3. Generate LOCAL candidates: small perturbations around fallback
+const std::array<Point2D, 8> kLocalDirs = {{
+    {-2.0,  0.0}, { 2.0,  0.0}, ...
+}};
+```
+
+AGENTS.md §6 fixes the candidate grid at exactly 8 angles × 3 distances = 24, plus the one guaranteed fallback (25 total), and says explicitly: *"Fixed candidate generation grid — do not change without updating this file."* This adds 8 more candidates that exist nowhere in AGENTS.md. Per §15, this needed the Ambiguity Protocol treatment (§14) — an `// ASSUMPTION:` comment and a flag for human review — neither is present.
+
+Also inconsistent: `GenerateForDimension` has no equivalent local-perturbation block, so Leaders and Dimensions are no longer generated symmetrically, which isn't noted anywhere either.
+
+**Recommended fix:** either remove this block, or promote it into AGENTS.md §6 as a documented addition (with the same precision as the existing constants table) so it's not silently divergent from the spec the rest of the project treats as ground truth.
+
+---
+
+### 🟡 MEDIUM 5 — `GetElementId` discards half the GUID, risking collisions
+
+**File:** `ArchicadAdapter.cpp:66-72`
+
+```cpp
+LayoutOptimizer::ElementId GetElementId (const API_Guid &guid) {
+    LayoutOptimizer::ElementId id = 0;
+    id |= static_cast<LayoutOptimizer::ElementId> (guid.time_low) << 32;
+    id |= static_cast<LayoutOptimizer::ElementId> (guid.time_mid) << 16;
+    id |= static_cast<LayoutOptimizer::ElementId> (guid.time_hi_and_version);
+    return id;
+}
+```
+
+A GUID is 128 bits; this only folds in `time_low` + `time_mid` + `time_hi_and_version` (64 bits) and drops `clock_seq_hi_and_reserved`, `clock_seq_low`, and the 6-byte `node` field entirely. Those dropped fields exist specifically to disambiguate GUIDs that share a timestamp — i.e. exactly the GUIDs most likely to be generated close together (elements created in the same modeling session/paste operation). Two distinct elements colliding on `ElementId` would:
+- break the uniqueness assumption behind `PlacementPriority::id`, the documented "final deterministic tie-break" (AGENTS.md §10) — on an exact tie, `std::sort` (not `stable_sort`) gives no ordering guarantee, which conflicts with §2 Rule 2's "identical input → byte-identical output" requirement.
+- cause `other.id != el.id` checks in the locked-neighbor count (`GreedySolver.cpp:204`) to silently skip a genuinely different locked neighbor that happens to collide.
+
+**Recommended fix:** fold all 128 bits (e.g. FNV-1a or XOR-fold across the full `API_Guid`, including `node`), not just the first three fields.
+
+---
+
+### 🟡 MEDIUM 6 — Dimension "slide" candidates get a degenerate 1-point polyline, biasing cost comparison
+
+**File:** `CandidateGenerator.cpp:262` vs. `:53-57`
+
+The 24 grid-generated Dimension candidates get a 3-point `leaderPolyline` (via `MakeCandidateInternal`, even if degenerate with a zero-length first segment). The 5 additional "perpendicular offset / slide along the line" candidates get:
+
+```cpp
+cand.leaderPolyline = { cand.textPosition };
+```
+
+— a single point. Since `ComputeLeaderLength` and `CountLineCollisions` both iterate `leaderPolyline` in pairs (`for i = 1; i < size; ++i`), a 1-point polyline trivially yields `leaderLength = 0` and `lineCollision = 0` **regardless of actual conflicts**. In `LayoutCost`'s lexicographic comparison, this gives the 5 slide candidates a systematic, unearned advantage over grid candidates whenever line collisions matter, biasing the solver toward them for the wrong reason.
+
+**Recommended fix:** build a consistent 2-point polyline for these candidates too (e.g. same reference point used for the grid candidates → `textPosition`), so `lineCollision`/`leaderLength` are computed on equal footing.
+
+---
+
+### 🟡 MEDIUM 7 — Fragile positional tracking of the guaranteed fallback candidate
+
+**File:** `CandidateGenerator.cpp:188, 192`
+
+```cpp
+const size_t fallbackIndex = kRawCandidates; // 24
+...
+bool isFallback = (i == fallbackIndex);
+```
+
+Correct today only because the fallback happens to be pushed immediately after the 24 raw candidates and before the 8 local ones. Nothing enforces that ordering going forward — a future edit that reorders the `push_back` calls (e.g. to insert the local candidates before the fallback, as already happens differently in `GenerateForDimension`) silently breaks the "guaranteed fallback bypasses filters" guarantee from AGENTS.md §7, with no compiler error to catch it.
+
+**Recommended fix:** add an explicit `bool isFallback = false;` field to `Candidate` and set it directly at construction, instead of inferring it from vector position.
+
+---
+
+### 🟡 MEDIUM 8 — "Zero ACAPI in Core" boundary has no structural enforcement
+
+**Files:** `DebugExport.hpp:5-11`, project layout generally
+
+`DebugExport.hpp` includes `ACAPinc.h`/`APIEnvir.h` directly while declaring its functions inside `namespace LayoutOptimizer { ... }` — the same namespace the core geometry/solver code uses. Separately, per IDEA.md's own file table, the project structure is flat under `Sources/AddOn/` with no `LayoutOptimizer/` subfolder — meaning AGENTS.md §16's automated check (`grep -rn "ACAPI_" LayoutOptimizer/`) and §11's promise that "the rule is enforced by the build graph, not just code review" don't currently correspond to anything that exists on disk. Right now, "zero ACAPI in core" is enforced purely by naming discipline, which is exactly the kind of guarantee AGENTS.md was written to not rely on.
+
+**Recommended fix (pick one, flag for a human either way per the Ambiguity Protocol):**
+- Physically split into `LayoutOptimizer/` / `ArchicadAdapter/` subfolders with separate CMake targets, matching what AGENTS.md §4/§11 already describe, or
+- At minimum, move `DebugExport`'s declarations out of `namespace LayoutOptimizer` into `namespace ArchicadAdapter` (or its own namespace), since it's unambiguously Adapter-layer code.
+
+---
+
+### 🟡 MEDIUM 9 — Test suite doesn't use the framework AGENTS.md mandates
+
+**File:** `LayoutOptimizerTests.cpp:1-50, 417`
+
+AGENTS.md §12 fixes Catch2 as the project's test framework. This file instead uses a hand-rolled `AssertTrue`/`AssertPointEqual` pair that calls `std::exit(1)` on failure, driven by a plain `int main()`. It works as a smoke test, but it doesn't integrate with any test runner/reporting, and it's a second, undocumented convention living alongside the one AGENTS.md already settled.
+
+**Recommended fix:** either port these test bodies into actual Catch2 `TEST_CASE`s, or — if there's a real reason (e.g. these need to run standalone without a Catch2 dependency in some build path) — formalize that as an explicit exception in AGENTS.md §12 rather than leaving it as silent drift.
+
+---
+
+### 🔵 LOW 10 — No test exercises `forbiddenGeometry` at all
+
+**File:** `LayoutOptimizerTests.cpp` (all `Test_*` functions)
+
+Every existing test passes an empty `forbidden` vector into `Solve(...)`. This is precisely why CRITICAL 2 went unnoticed — there was never a fixture where a fallback candidate overlaps forbidden geometry with an empty `placedCandidates` list.
+
+**Recommended fix:** add a test: single element, fallback position deliberately placed inside a `forbiddenGeometry` rect, no other elements — assert the solver relocates it (currently it won't, until CRITICAL 2 is fixed; this test should fail first, then pass once fixed — standard TDD red/green, matching this file's own stated convention at the top of the file).
+
+---
+
+### 🔵 LOW 11 — `GetActiveViewScaleDenominator()` is a hardcoded stub
+
+**File:** `ArchicadAdapter.cpp:24-26`
+
+Always returns `1.0` regardless of the drawing's actual scale, despite the header comment in `ArchicadAdapter.hpp:46` documenting it as "e.g., 100 for 1:100." This means the existing correct `× 1000.0 / viewScaleDenom` text-size conversion is currently only correct by coincidence (dividing by 1.0). Needs a real implementation querying the active view before scale-dependent behavior can be trusted on any drawing that isn't 1:1.
+
+---
+
+### 🔵 LOW 12 — Test fixture `Candidate` literals don't match the struct's actual field count
+
+**File:** `LayoutOptimizerTests.cpp:106-108` (and similar throughout)
+
+```cpp
+{ {10,10}, Rect::FromCenter({10,10},12,3), {{0,0},{5,0},{10,10}}, 0, true },
+```
+
+`Candidate` has 7 aggregate fields (`textPosition, textBox, leaderPolyline, offset, angle, leaderAngle, valid`); this initializer only supplies 5. The trailing `true` binds to `angle` (not `valid`, as presumably intended), and `leaderAngle`/`valid` fall through to their default member initializers (`0.0`/`true`). Harmless today only because `valid`'s default already happens to be `true` — nothing here is currently checked by an assertion. Worth tightening with designated initializers so a future assertion on `angle` doesn't get silently bogus data.
+
+---
+
+### Summary Table
+
+| # | Severity | File | One-line fix |
+|---|----------|------|---------------|
+| 1 | 🔴 Critical | ArchicadAdapter.cpp | Add real meters→mm conversion to Model↔PaperSpace |
+| 1b | 🔴 Critical | ArchicadAdapter.cpp | Remove ×1000 from para.width/para.height (already mm per API_ParagraphType) |
+| 1c | 🔴 Critical | ArchicadAdapter.cpp | Respect Text Anchor Point enum for text box origin (query via LightRAG MCP) |
+| 2 | 🔴 Critical | GreedySolver.cpp | Layout Stability shortcut must also check forbiddenGeometry/obstaclePolylines |
+| 3 | 🟠 High | CandidateGenerator.*, ArchicadAdapter.cpp | Thread real obstaclePolylines into candidate filtering |
+| 4 | 🟠 High | CandidateGenerator.cpp | Remove or formally document the 8 local-perturbation candidates |
+| 5 | 🟡 Medium | ArchicadAdapter.cpp | Use the full GUID in GetElementId, not just 64 bits |
+| 6 | 🟡 Medium | CandidateGenerator.cpp | Give Dimension slide-candidates a real 2-point polyline |
+| 7 | 🟡 Medium | CandidateGenerator.cpp | Replace positional fallback tracking with an explicit `isFallback` field |
+| 8 | 🟡 Medium | DebugExport.hpp / project layout | Structurally separate Core/Adapter, or move DebugExport out of `LayoutOptimizer::` |
+| 9 | 🟡 Medium | LayoutOptimizerTests.cpp | Port to Catch2 or formally except it in AGENTS.md §12 |
+| 10 | 🔵 Low | LayoutOptimizerTests.cpp | Add a forbiddenGeometry test case |
+| 11 | 🔵 Low | ArchicadAdapter.cpp | Implement real view-scale lookup |
+| 12 | 🔵 Low | LayoutOptimizerTests.cpp | Fix under-specified Candidate literals |
+| 13 | 🟡 Medium | ArchicadAdapter.cpp | Aggregate all paragraphs in GetTextBoxPaperSpace (not just [0][0]) |
+
+**Recommended fix order:** #1, #1b, #1c and #2 together first (they mask each other), re-run the manual test and the `bad_before`/`good_before` debug fixtures, confirm both pass, *then* proceed to #3/#4, then the rest.
 
 ---
 

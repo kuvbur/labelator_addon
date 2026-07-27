@@ -115,6 +115,7 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
     const Point2D& anchor,
     const LeaderLayout& currentLayout,
     const std::vector<Rect>& obstacles,
+    const std::vector<std::vector<Point2D>>& obstaclePolylines,
     const Rect& viewBoundary
 ) {
     std::vector<Candidate> candidates;
@@ -154,6 +155,9 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
     // 3. Generate LOCAL candidates: small perturbations around fallback
     // This allows the solver to nudge labels by 1-2mm to resolve tiny overlaps
     // instead of jumping to faraway 5/10/20mm grid positions.
+    // 3. Generate LOCAL candidates: small perturbations around fallback
+    // This allows the solver to nudge labels by 1-2mm to resolve tiny overlaps
+    // instead of jumping to faraway 5/10/20mm grid positions.
     const std::array<Point2D, 8> kLocalDirs = {{
         {-2.0,  0.0}, { 2.0,  0.0},  // left, right
         { 0.0, -2.0}, { 0.0,  2.0},  // up, down (Y down = positive)
@@ -161,30 +165,48 @@ std::vector<Candidate> CandidateGenerator::GenerateForLeader (
         {-1.4,  1.4}, { 1.4,  1.4},  // down-left, down-right
     }};
     for (const Point2D& dir : kLocalDirs) {
-        Candidate local;
-        local.textPosition = {
-            currentLayout.textPosition.x + dir.x,
-            currentLayout.textPosition.y + dir.y
-        };
-        double w = textBoxSize.Width();
-        double h = textBoxSize.Height();
-        local.textBox.left = local.textPosition.x - w * 0.5;
-        local.textBox.right = local.textPosition.x + w * 0.5;
-        local.textBox.top = local.textPosition.y - h * 0.5;
-        local.textBox.bottom = local.textPosition.y + h * 0.5;
-        local.leaderPolyline = currentLayout.leaderPolyline;
-        // Update only the end point of leader (text position)
-        if (local.leaderPolyline.size() >= 3) {
-            local.leaderPolyline[2] = local.textPosition;
+            Candidate local;
+            local.textPosition = {
+                currentLayout.textPosition.x + dir.x,
+                currentLayout.textPosition.y + dir.y
+            };
+            double w = textBoxSize.Width();
+            double h = textBoxSize.Height();
+            local.textBox.left = local.textPosition.x - w * 0.5;
+            local.textBox.right = local.textPosition.x + w * 0.5;
+            local.textBox.top = local.textPosition.y - h * 0.5;
+            local.textBox.bottom = local.textPosition.y + h * 0.5;
+        
+            // Rebuild leader polyline correctly: anchor -> shoulder (at shoulderLength along new direction) -> new textPosition
+            local.leaderPolyline.clear();
+            local.leaderPolyline.push_back (anchor); // begC
+            // Direction from anchor to new text position
+            double dx = local.textPosition.x - anchor.x;
+            double dy = local.textPosition.y - anchor.y;
+            double dist = std::sqrt(dx * dx + dy * dy);
+            if (dist > 1e-6 && shoulderLength > 0) {
+                // Mid point at shoulderLength distance along the direction
+                double nx = dx / dist;
+                double ny = dy / dist;
+                local.leaderPolyline.push_back ({
+                    anchor.x + shoulderLength * nx,
+                    anchor.y + shoulderLength * ny
+                });
+            } else if (currentLayout.leaderPolyline.size() >= 2) {
+                // Fallback: use original midC if direction can't be determined
+                local.leaderPolyline.push_back (currentLayout.leaderPolyline[1]);
+            } else {
+                local.leaderPolyline.push_back (anchor);
+            }
+            local.leaderPolyline.push_back (local.textPosition); // endC
+        
+            local.angle = std::atan2 (dy, dx) * 180.0 / 3.14159265358979323846;
+            local.valid = true;
+            candidates.push_back (std::move (local));
         }
-        local.angle = currentLayout.leaderAngle;
-        local.valid = true;
-        candidates.push_back (std::move (local));
-    }
 
     // 3. Filter candidates (mark invalid instead of removing, fallback bypasses filters)
     // Fallback is at index kRawCandidates (24), local candidates follow
-    std::vector<std::vector<Point2D>> obstaclePolylines; // Phase 4 placeholder
     const size_t fallbackIndex = kRawCandidates; // 24
 
     for (size_t i = 0; i < candidates.size(); ++i) {
@@ -215,6 +237,7 @@ std::vector<Candidate> CandidateGenerator::GenerateForDimension (
     const DimensionLayout& currentLayout,
     const Point2D& direction,
     const std::vector<Rect>& obstacles,
+    const std::vector<std::vector<Point2D>>& obstaclePolylines,
     const Rect& viewBoundary
 ) {
     std::vector<Candidate> candidates;
@@ -280,11 +303,12 @@ std::vector<Candidate> CandidateGenerator::GenerateForDimension (
     candidates.push_back (std::move (fallback));
 
     // 4. Filter candidates (fallback bypasses filters)
-    std::vector<std::vector<Point2D>> obstaclePolylines; // Phase 4 placeholder
+    // Pass the obstaclePolylines parameter to PassesObstacleLines instead of empty placeholder
+    const size_t fallbackIndex = candidates.size() - 1;
 
     for (size_t i = 0; i < candidates.size(); ++i) {
         Candidate& cand = candidates[i];
-        bool isFallback = (i == candidates.size() - 1);
+        bool isFallback = (i == fallbackIndex);
 
         if (isFallback) {
             continue;

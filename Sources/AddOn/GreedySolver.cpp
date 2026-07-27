@@ -250,6 +250,7 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
         
         // Layout Stability check: если fallback не имеет значимых пересечений
         // (с учётом kLayoutStabilityEps) с уже размещёнными, используем его без поиска.
+        // Также проверяем геометрию и линии лидеров.
         const Candidate& fallback = element.candidates.back();
         bool fallbackStable = true;
         const Rect fbBox = ShrinkRect (fallback.textBox, kLayoutStabilityEps * 0.5);
@@ -258,6 +259,17 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
             if (fbBox.Intersects (plBox)) {
                 fallbackStable = false;
                 break;
+            }
+        }
+        // Also check geometry and line collisions
+        if (fallbackStable) {
+            if (CountGeometryCollisions(fallback, forbiddenGeometry) > 0) {
+                fallbackStable = false;
+            }
+        }
+        if (fallbackStable) {
+            if (CountLineCollisions(fallback, placedCandidates, obstaclePolylines) > 0) {
+                fallbackStable = false;
             }
         }
         if (fallbackStable) {

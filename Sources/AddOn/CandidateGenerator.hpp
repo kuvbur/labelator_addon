@@ -22,11 +22,13 @@ struct CandidateGenerator {
     // anchor = LeaderGeometry::anchorPoint, currentLayout = LeaderLayout
     // textBoxSize = current text box dimensions (preserved)
     // obstacles = forbidden geometry rects (for filtering step 2)
+    // obstaclePolylines = obstacle line segments (for filtering step 3)
     // viewBoundary = drawing boundary rect (for filtering step 1)
     static std::vector<Candidate> GenerateForLeader (
         const Point2D& anchor,
         const LeaderLayout& currentLayout,
         const std::vector<Rect>& obstacles,
+        const std::vector<std::vector<Point2D>>& obstaclePolylines,
         const Rect& viewBoundary
     );
 
@@ -34,11 +36,15 @@ struct CandidateGenerator {
     // measurePoint = first point of DimensionGeometry::measurePoints
     // currentLayout = DimensionLayout
     // direction = DimensionGeometry::direction (normalized, for perpendicular offsets)
+    // obstacles = forbidden geometry rects (for filtering step 2)
+    // obstaclePolylines = obstacle line segments (for filtering step 3)
+    // viewBoundary = drawing boundary rect (for filtering step 1)
     static std::vector<Candidate> GenerateForDimension (
         const Point2D& measurePoint,
         const DimensionLayout& currentLayout,
         const Point2D& direction,
         const std::vector<Rect>& obstacles,
+        const std::vector<std::vector<Point2D>>& obstaclePolylines,
         const Rect& viewBoundary
     );
 

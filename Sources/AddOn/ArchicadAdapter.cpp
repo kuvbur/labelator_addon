@@ -22,17 +22,29 @@ namespace ArchicadAdapter {
     template <typename T> inline void BNZero (T &obj) { BNZeroMemory (&obj, sizeof (T)); }
 
     double GetActiveViewScaleDenominator () {
-        return 1.0; // В Архикаде координаты не зависят от масштаба!
+        double scale = 100.0;
+        GSErrCode err = ACAPI_Database (APIDb_GetDrawingScaleID, &scale, nullptr);
+        if (err == NoError && scale > 0.0)
+            return scale;
+        return 100.0; // Default 1:100
     }
 
-    LayoutOptimizer::Point2D ModelToPaperSpace (const API_Coord &modelCoord, double viewScaleDenom) {
-        const double scaleFactor = 1; // В Архикаде координаты не зависят от масштаба!
-        return {modelCoord.x * scaleFactor, modelCoord.y * scaleFactor};
+    // Model coordinates in Archicad are in meters. Paper Space mm = modelCoord (meters) * 1000.0
+    // The drawing scale (viewScaleDenom) is applied for text sizes from memo paragraphs, not for geometry coordinates.
+    LayoutOptimizer::Point2D ModelToPaperSpace (const API_Coord& modelCoord, double viewScaleDenom) {
+        const double scaleFactor = 1000.0; // meters -> millimeters
+        return {
+            modelCoord.x * scaleFactor,
+            -modelCoord.y * scaleFactor  // Y-flip: model +Y up -> paper +Y down
+        };
     }
 
-    API_Coord PaperSpaceToModel (const LayoutOptimizer::Point2D &paperCoord, double viewScaleDenom) {
-        const double scaleFactor = 1; // В Архикаде координаты не зависят от масштаба!
-        return {paperCoord.x * scaleFactor, paperCoord.y * scaleFactor};
+    API_Coord PaperSpaceToModel (const LayoutOptimizer::Point2D& paperCoord, double viewScaleDenom) {
+        const double scaleFactor = 0.001; // millimeters -> meters
+        return {
+            paperCoord.x * scaleFactor,
+            -paperCoord.y * scaleFactor
+        };
     }
 
     // -----------------------------------------------------------------------------
@@ -442,7 +454,7 @@ namespace ArchicadAdapter {
             // Generate candidates using CandidateGenerator
             std::vector<LayoutOptimizer::Candidate> candidates =
                 LayoutOptimizer::CandidateGenerator::GenerateForLeader (
-                    le.geo.anchorPoint, le.layout, forbiddenGeometry, viewBoundary);
+                    le.geo.anchorPoint, le.layout, forbiddenGeometry, obstaclePolylines, viewBoundary);
 
             input.candidates = std::move (candidates);
             inputs.push_back (std::move (input));
@@ -462,7 +474,7 @@ namespace ArchicadAdapter {
 
             std::vector<LayoutOptimizer::Candidate> candidates =
                 LayoutOptimizer::CandidateGenerator::GenerateForDimension (
-                    measurePoint, de.layout, de.geo.direction, forbiddenGeometry, viewBoundary);
+                    measurePoint, de.layout, de.geo.direction, forbiddenGeometry, obstaclePolylines, viewBoundary);
 
             // Note: For dimensions, offset should be perpendicular distance.
             // The CandidateGenerator creates radial candidates; the solver will
