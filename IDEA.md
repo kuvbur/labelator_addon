@@ -130,7 +130,6 @@ code D:/labelator_addon/IDEA.md
 
 - [x] Added `ACAPI_Element_GetMemo` before `ACAPI_Element_Change`
 - [x] Used `APIMemoMask_All` instead of `0`
-- [x] Check `memo.paragraphs != nullptr` for dimensions
 
 ### ✅ FIXED: leader text position (GetTextBoxPaperSpace)
 
@@ -143,9 +142,17 @@ code D:/labelator_addon/IDEA.md
 - [x] Memo is fetched BEFORE modifying the element (best practice, avoids content loss)
 - [x] Removed the duplicate `GetMemo` call after building the mask
 
+### ✅ FIXED: text encoding corruption (UTF-8/UTF-16 conflict)
+
+- [x] Changed memo mask from `APIMemoMask_ParagraphUni | APIMemoMask_TextContentUni` to **no mask (0)** for geometry-only changes
+- [x] Get ALL memo data with `ACAPI_Element_GetMemo(guid, &memo)` (no mask) to preserve text content
+- [x] Pass `0` as memo mask to `ACAPI_Element_Change` since we only modify geometry (position, angle), not text content
+- [x] This prevents the UTF-8/UTF-16 encoding conflict that was corrupting "СТН-010" to "ꇐꋐ鷐〭〱"
+
 ### ⏳ Awaiting manual test in Archicad
 
 - [ ] **Manual test**: undo/redo round-trips, locked elements unchanged
+- [ ] **Verify Layout Stability**: elements without conflicts must not move (test with `good_before` fixture)
 
 ⚠️ See the **Bug Fix Gate** at the top of this file — any bug found here blocks all further development until fixed and re-verified.
 

@@ -308,12 +308,10 @@ namespace ArchicadAdapter {
                     continue;
 
                 // Get memo FIRST (before modifying element) - required for ACAPI_Element_Change
-                // Используем только UTF16 маски (TextContentUni | ParagraphUni), чтобы избежать
-                // конфликта кодировок UTF8/UTF16 при передаче обеих версий текста (баг #2)
+                // Get ALL memo data to preserve text content; we pass mask=0 to Change since we only modify geometry
                 API_ElementMemo memo = {};
                 BNZero (memo);
-                constexpr UInt64 kMemoMask = APIMemoMask_ParagraphUni | APIMemoMask_TextContentUni;
-                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo, kMemoMask);
+                GSErrCode memoErr = ACAPI_Element_GetMemo (elem.header.guid, &memo);
                 if (memoErr != NoError) {
                     // No memo available, cannot modify safely
                     continue;
@@ -362,7 +360,7 @@ namespace ArchicadAdapter {
                     elem.label.u.text.loc = PaperSpaceToModel (anchor, viewScaleDenom);
                 }
 
-                err = ACAPI_Element_Change (&elem, &mask, &memo, kMemoMask, true);
+                err = ACAPI_Element_Change (&elem, &mask, &memo, 0, true);
                 ACAPI_DisposeElemMemoHdls (&memo);
                 if (err != NoError)
                     return err;
@@ -385,11 +383,10 @@ namespace ArchicadAdapter {
                     continue;
 
                 // Get memo for dimension (required for ACAPI_Element_Change)
-                // Используем только UTF16 маски (TextContentUni | ParagraphUni)
+                // Get ALL memo data to preserve text content; we pass mask=0 to Change since we only modify geometry
                 API_ElementMemo memo = {};
                 BNZero (memo);
-                constexpr UInt64 kDimMemoMask = APIMemoMask_ParagraphUni | APIMemoMask_TextContentUni;
-                err = ACAPI_Element_GetMemo (elem.header.guid, &memo, kDimMemoMask);
+                err = ACAPI_Element_GetMemo (elem.header.guid, &memo);
                 if (err != NoError || memo.paragraphs == nullptr) {
                     // No memo available, cannot modify safely
                     ACAPI_DisposeElemMemoHdls (&memo);
@@ -405,7 +402,7 @@ namespace ArchicadAdapter {
                 // Update text position - always update to the solved position
                 elem.dimension.defNote.pos = PaperSpaceToModel (solved.layout.textPosition, viewScaleDenom);
 
-                err = ACAPI_Element_Change (&elem, &mask, &memo, kDimMemoMask, true);
+                err = ACAPI_Element_Change (&elem, &mask, &memo, 0, true);
                 ACAPI_DisposeElemMemoHdls (&memo);
                 if (err != NoError)
                     return err;
