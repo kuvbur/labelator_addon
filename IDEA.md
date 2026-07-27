@@ -342,10 +342,13 @@ mkdir -p BuildTests && cd BuildTests
 cmake -G "Visual Studio 17 2022" -A x64 ..
 cmake --build . --config Debug
 LayoutOptimizerTests.exe
-
-# Option 2: Build as part of addon (for integration testing in Archicad)
-python Tools/BuildAddOn.py -c config.json -v 25
-# Tests compile as part of the .apx — run manually in Archicad test harness
+### How to run tests WITHOUT Archicad:
+```bash
+# Option 1: Standalone test executable (CMake - pure C++17, NO Archicad)
+mkdir -p BuildTests && cd BuildTests
+cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON ..
+cmake --build . --config Debug
+LayoutOptimizerTests.exe
 ```
 
 ### 🛑 HARD RULE — Build Gate
