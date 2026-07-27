@@ -600,30 +600,31 @@ def run_full_test(csv_dir: str, verbose: bool = False, override_text_width: floa
         print("  No 'after' CSV for comparison")
 
     # --- TEST 5: Layout Stability golden rule ---
-    print(f"\n--- Test 5: Golden Rule — OK_LABEL Stability ---")
-    ok_elements = [(el, sol) for el, sol in zip(elements, solved)
-                   if 'OK_LABEL' in el.text_content]
+    print(f"\n--- Test 5: Golden Rule — OK_LABEL Stability (elements 0,1) ---")
+    # textContent в CSV пустой для custom label классов, определяем по позиции:
+    # первые 2 элемента (сверху) — OK_LABEL, нижние 2 — BAD_LABEL
+    ok_first = 2  # первые 2 элемента — OK_LABEL на скриншоте
     all_stable = True
-    for el, sol in ok_elements:
+    for i in range(ok_first):
+        el, sol = elements[i], solved[i]
         if sol.chosen and el.fallback:
             move = sol.chosen.text_position.dist(el.fallback.text_position)
             if move > EPS:
-                print(f"  ❌ '{el.text_content}' moved {move:.4f}mm — violates Layout Stability!")
+                print(f"  ❌ [{i}] moved {move:.4f}mm — violates Layout Stability!")
                 all_stable = False
     if all_stable:
-        print(f"  ✓ All OK_LABEL elements stable (no movement)")
+        print(f"  ✓ OK_LABEL elements (0,1) stable (no movement)")
 
     # --- TEST 6: BAD_LABEL collision resolved ---
     print(f"\n--- Test 6: BAD_LABEL Collision Resolution ---")
-    bad_elements = [sol for sol in solved if 'BAD_LABEL' in sol.text_content]
-    bad_placed = [sol.chosen for sol in bad_elements if sol.chosen]
+    bad_placed = [solved[i].chosen for i in range(ok_first, len(solved)) if solved[i].chosen]
     conflicts = 0
     for i in range(len(bad_placed)):
         for j in range(i):
             tc = count_text_collisions(bad_placed[i], bad_placed[j])
             lc = count_line_collisions(bad_placed[i], [bad_placed[j]], obstacle_polys)
             if tc or lc:
-                print(f"  ❌ BAD_LABEL [{i}] vs [{j}]: text_coll={tc} line_coll={lc}")
+                print(f"  ❌ BAD_LABEL [{i+ok_first}] vs [{j+ok_first}]: text_coll={tc} line_coll={lc}")
                 conflicts += 1
     if conflicts == 0:
         print(f"  ✓ All BAD_LABEL collisions resolved")
