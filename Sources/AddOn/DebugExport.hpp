@@ -1,6 +1,10 @@
 //------------ kuvbur 2026 ------------
 // LayoutOptimizer Debug Export - экспорт всей геометрии выносок и размеров в CSV
 // Для отладки без запуска Archicad - собирает все поля API_LabelType / API_DimensionType
+//
+// NOTE: This file uses ACAPI directly, so it belongs in ArchicadAdapter namespace,
+// NOT LayoutOptimizer. The LayoutOptimizer namespace is reserved for pure C++17 core
+// with NO ACAPI dependencies (AGENTS.md Section 2 Rule 1).
 
 #include "ACAPinc.h"
 #include "APIEnvir.h"
@@ -8,7 +12,7 @@
 #include <sstream>
 #include <iomanip>
 
-namespace LayoutOptimizer {
+namespace ArchicadAdapter {
 
 // Вспомогательная: конвертация GUID в строку
 static GS::UniString GuidToString (const API_Guid& guid) {
@@ -251,4 +255,4 @@ GSErrCode RunFullDebugExport () {
     return err;
 }
 
-} // namespace LayoutOptimizer
+} // namespace ArchicadAdapter

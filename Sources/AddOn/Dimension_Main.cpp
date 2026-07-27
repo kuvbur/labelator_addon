@@ -14,12 +14,12 @@
 // -----------------------------------------------------------------------------
 void Do_OptimizeAnnotations () {
     // Экспорт геометрии ДО оптимизации для отладки
-    GSErrCode exportErr = LayoutOptimizer::ExportLabelsGeometryToCSV ("debug_labels_before.csv");
+    GSErrCode exportErr = ArchicadAdapter::ExportLabelsGeometryToCSV ("debug_labels_before.csv");
     if (exportErr == NoError) {
-        exportErr = LayoutOptimizer::ExportDimensionsGeometryToCSV ("debug_dimensions_before.csv");
+        exportErr = ArchicadAdapter::ExportDimensionsGeometryToCSV ("debug_dimensions_before.csv");
     }
     if (exportErr == NoError) {
-        exportErr = LayoutOptimizer::ExportObstaclesToCSV ("debug_obstacles.csv");
+        exportErr = ArchicadAdapter::ExportObstaclesToCSV ("debug_obstacles.csv");
     }
 
     GSErrCode err = ArchicadAdapter::RunOptimization();
@@ -29,8 +29,8 @@ void Do_OptimizeAnnotations () {
     }
 
     // Экспорт геометрии ПОСЛЕ оптимизации для отладки
-    LayoutOptimizer::ExportLabelsGeometryToCSV ("debug_labels_after.csv");
-    LayoutOptimizer::ExportDimensionsGeometryToCSV ("debug_dimensions_after.csv");
+    ArchicadAdapter::ExportLabelsGeometryToCSV ("debug_labels_after.csv");
+    ArchicadAdapter::ExportDimensionsGeometryToCSV ("debug_dimensions_after.csv");
 }
 
 static GSErrCode MenuCommandHandler (const API_MenuParams *menuParams) {
