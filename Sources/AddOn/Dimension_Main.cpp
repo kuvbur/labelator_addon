@@ -4,6 +4,7 @@
 #include "Dimension_Main.hpp"
 #include "ResourceIds.hpp"
 #include "ArchicadAdapter.hpp"
+#include "DebugExport.hpp"
 #ifdef TESTING
     #include "TestFunc.hpp"
 #endif
@@ -12,11 +13,24 @@
 // Оптимизация расположения выносок
 // -----------------------------------------------------------------------------
 void Do_OptimizeAnnotations () {
+    // Экспорт геометрии ДО оптимизации для отладки
+    GSErrCode exportErr = LayoutOptimizer::ExportLabelsGeometryToCSV ("debug_labels_before.csv");
+    if (exportErr == NoError) {
+        exportErr = LayoutOptimizer::ExportDimensionsGeometryToCSV ("debug_dimensions_before.csv");
+    }
+    if (exportErr == NoError) {
+        exportErr = LayoutOptimizer::ExportObstaclesToCSV ("debug_obstacles.csv");
+    }
+
     GSErrCode err = ArchicadAdapter::RunOptimization();
     if (err != NoError) {
         // Log error
         ACAPI_WriteReport("LayoutOptimizer: Optimization failed with error %d", false, err);
     }
+
+    // Экспорт геометрии ПОСЛЕ оптимизации для отладки
+    LayoutOptimizer::ExportLabelsGeometryToCSV ("debug_labels_after.csv");
+    LayoutOptimizer::ExportDimensionsGeometryToCSV ("debug_dimensions_after.csv");
 }
 
 static GSErrCode MenuCommandHandler (const API_MenuParams *menuParams) {

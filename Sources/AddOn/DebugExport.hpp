@@ -12,9 +12,7 @@ namespace LayoutOptimizer {
 
 // Вспомогательная: конвертация GUID в строку
 static GS::UniString GuidToString (const API_Guid& guid) {
-    GS::UniString str;
-    APIGuidToString (guid, str);
-    return str;
+    return APIGuidToString (guid);
 }
 
 // Экспорт всех Label элементов
@@ -50,7 +48,7 @@ GSErrCode ExportLabelsGeometryToCSV (const char* filename) {
 
         double textWidth = 50.0;
         double textHeight = 3.0;
-        GS::UniString textContent = L"";
+        GS::UniString textContent;
         
         if (memo.paragraphs != nullptr && memo.paragraphs[0] != nullptr) {
             const API_ParagraphType& para = memo.paragraphs[0][0];
@@ -58,7 +56,7 @@ GSErrCode ExportLabelsGeometryToCSV (const char* filename) {
             textHeight = para.height;
         }
         if (memo.textContent != nullptr && memo.textContent[0] != nullptr) {
-            textContent = *memo.textContent[0];
+            textContent = memo.textContent[0];
         }
 
         GS::UniString guidStr = GuidToString (guid);
@@ -115,7 +113,7 @@ GSErrCode ExportDimensionsGeometryToCSV (const char* filename) {
 
         double textWidth = 50.0;
         double textHeight = 3.0;
-        GS::UniString textContent = L"";
+        GS::UniString textContent;
         
         if (memo.paragraphs != nullptr && memo.paragraphs[0] != nullptr) {
             const API_ParagraphType& para = memo.paragraphs[0][0];
@@ -123,7 +121,7 @@ GSErrCode ExportDimensionsGeometryToCSV (const char* filename) {
             textHeight = para.height;
         }
         if (memo.textContent != nullptr && memo.textContent[0] != nullptr) {
-            textContent = *memo.textContent[0];
+            textContent = memo.textContent[0];
         }
 
         GS::UniString guidStr = GuidToString (guid);
@@ -133,7 +131,7 @@ GSErrCode ExportDimensionsGeometryToCSV (const char* filename) {
             << elem.dimension.refC.x << "," << elem.dimension.refC.y << ","
             << elem.dimension.direction.x << "," << elem.dimension.direction.y << ","
             << elem.dimension.defNote.pos.x << "," << elem.dimension.defNote.pos.y << ","
-            << elem.dimension.defNote.angle << ","
+            << elem.dimension.defNote.noteAngle << ","
             << textWidth << "," << textHeight << ","
             << textContent.ToCStr().Get() << "\n";
 
@@ -166,10 +164,8 @@ GSErrCode ExportObstaclesToCSV (const char* filename) {
             if (err != NoError)
                 continue;
 
-            // Check if locked
             bool locked = (elem.header.floorInd & 0x8000) != 0;
             if (!locked) {
-                // Check layer lock
                 API_Attribute layerAttr;
                 BNZeroMemory (&layerAttr, sizeof (API_Attribute));
                 layerAttr.header.typeID = API_LayerID;
@@ -218,7 +214,6 @@ GSErrCode ExportObstaclesToCSV (const char* filename) {
             if (locked) {
                 GS::UniString guidStr = GuidToString (guid);
                 csv << std::fixed << std::setprecision (4);
-                // For dimension, export text box as rectangle
                 csv << guidStr.ToCStr().Get() << ",dimension,1,"
                     << elem.dimension.refC.x << "," << elem.dimension.refC.y << ","
                     << elem.dimension.defNote.pos.x << "," << elem.dimension.defNote.pos.y << ","
