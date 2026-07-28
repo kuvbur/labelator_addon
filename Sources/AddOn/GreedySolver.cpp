@@ -169,6 +169,7 @@ SolveResult Solve(const std::vector<ElementInput>& elements,
                   const std::vector<std::vector<Point2D>>& obstaclePolylines) {
     SolveResult result;
     result.log.elementCount = elements.size();
+    result.zeroCollisionSolution = true;  // Assume zero collision until proven otherwise
     
     // Layout Stability epsilon для текстовых коллизий (mm)
     // Текстовые рамки могут незначительно перекрываться (≤1.0mm) из-за

@@ -336,13 +336,7 @@ grep -rn "unordered_map\|unordered_set" Sources/AddOn/LayoutOptimizer.hpp Source
 4. `Test_CSVFixture_OK_LABEL_Elements_Frozen` — OK_LABEL elements frozen at fallback
 
 ### How to run tests WITHOUT Archicad:
-```bash
-# Option 1: Standalone test executable (CMake - pure C++17, NO Archicad)
-mkdir -p BuildTests && cd BuildTests
-cmake -G "Visual Studio 17 2022" -A x64 ..
-cmake --build . --config Debug
-LayoutOptimizerTests.exe
-### How to run tests WITHOUT Archicad:
+
 ```bash
 # Option 1: Standalone test executable (CMake - pure C++17, NO Archicad)
 mkdir -p BuildTests && cd BuildTests
@@ -351,8 +345,7 @@ cmake --build . --config Debug
 LayoutOptimizerTests.exe
 ```
 
-### 🛑 HARD RULE — Build Gate
-
+### Build Gate (HARD RULE):
 **LayoutOptimizerTests.cpp MUST PASS ALL TESTS BEFORE ANY BUILD IS CONSIDERED VALID**
 
 - ✅ Build only starts AFTER `LayoutOptimizerTests.cpp` passes all tests
@@ -364,9 +357,7 @@ This is the primary verification mechanism. No manual Archicad testing, no Pytho
 
 ---
 
----
-
-## 🧪 TEST-DRIVEN DEVELOPMENT (TDD) — Iron Rule
+### 🧪 TEST-DRIVEN DEVELOPMENT (TDD) — Iron Rule
 
 **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
 
@@ -379,24 +370,7 @@ This is the primary verification mechanism. No manual Archicad testing, no Pytho
 3. `Test_TwoElements_BAD_LABEL_Resolved` — overlapping labels resolved via nudge
 4. `Test_ThreeElements_ChainConflict` — chain collision resolved
 5. `Test_CSVFixture_Loaded` — CSV fixture loads correctly
-4. `Test_CSVFixture_OK_LABEL_Elements_Frozen` — OK_LABEL elements frozen at fallback
-
-### Workflow:
-```bash
-# Build (includes tests)
-python Tools/BuildAddOn.py -c config.json -v 25
-```
-Tests compile as part of main project. Pure C++17, no Archicad dependencies.
-
-### Verification Checklist (before marking complete):
-- [ ] Every new function/method has a test
-- [ ] Watched each test fail before implementing
-- [ ] Each test failed for expected reason (feature missing, not typo)
-- [ ] Wrote minimal code to pass each test
-- [ ] All tests pass
-- [ ] Output pristine (no errors, warnings)
-- [ ] Tests use real code (mocks only if unavoidable)
-- [ ] Edge cases and errors covered
+6. `Test_CSVFixture_OK_LABEL_Elements_Frozen` — OK_LABEL elements frozen at fallback
 
 Can't check all boxes? You skipped TDD. Start over.
 

@@ -389,3 +389,5 @@ nul
 *.ilk
 Build/
 
+/BuildTests
+/Tests
